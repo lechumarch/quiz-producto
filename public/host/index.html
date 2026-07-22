@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quiz Host</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F2F0FA;min-height:100vh;padding:24px}
+.hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}
+.logo{font-size:22px;font-weight:900;color:#1a0a5e}
+.badge{font-size:11px;font-weight:700;color:#fff;background:#6b2bd9;padding:3px 10px;border-radius:12px}
+.section-title{font-size:12px;font-weight:700;color:#8a7aaa;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
+.quiz-card{background:#fff;border-radius:14px;padding:16px;margin-bottom:10px;border:1px solid #e0d9f7;display:flex;align-items:center;justify-content:space-between}
+.quiz-info .title{font-size:15px;font-weight:800;color:#1a0a5e}
+.quiz-info .meta{font-size:12px;color:#8a7aaa;margin-top:2px}
+.quiz-actions{display:flex;gap:8px;flex-shrink:0}
+.btn{padding:8px 14px;border:none;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer}
+.btn-edit{background:#f0edff;color:#6b2bd9}
+.btn-start{background:#e8192c;color:#fff}
+.btn-retomar{background:#6b2bd9;color:#fff}
+.btn-del{background:#f5f5f5;color:#8a7aaa}
+.new-form{background:#fff;border-radius:14px;padding:20px;border:1px solid #e0d9f7;margin-bottom:24px}
+input,select{width:100%;padding:10px 12px;border:2px solid #e0d9f7;border-radius:9px;font-size:14px;color:#1a0a5e;margin-bottom:10px;outline:none}
+input:focus,select:focus{border-color:#6b2bd9}
+.btn-primary{width:100%;padding:12px;border:none;border-radius:10px;background:#6b2bd9;color:#fff;font-size:14px;font-weight:800;cursor:pointer}
+.tab{display:inline-block;padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;color:#8a7aaa;border:none;background:none}
+.tab.active{background:#fff;color:#6b2bd9;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.tabs-bar{background:#f0edff;border-radius:12px;padding:4px;margin-bottom:20px;display:flex}
+.rank-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0edff}
+</style>
+</head>
+<body>
+<div class="hdr"><div class="logo">✈ Quiz Producto</div><div class="badge">Host</div></div>
+<div class="tabs-bar">
+  <button class="tab active" onclick="showTab('quizzes',this)">Quizzes</button>
+  <button class="tab" onclick="showTab('ranking',this)">Ranking Anual</button>
+  <button class="tab" onclick="showTab('roster',this)">Roster</button>
+</div>
+<div id="tabContent"></div>
+<script>
+const BASE=location.pathname.split('/').slice(0,2).join('/');
+async function api(path,method='GET',body){
+  const r=await fetch(BASE+'/host'+path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  return r.json();
+}
+async function showTab(tab,el){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  if(el)el.classList.add('active');
+  if(tab==='quizzes')await renderQuizzes();
+  else if(tab==='ranking')await renderRanking();
+  else if(tab==='roster')await renderRoster();
+}
+async function renderQuizzes(){
+  const quizzes=await api('/api/quizzes');
+  const tc=document.getElementById('tabContent');
+  tc.innerHTML=`<div class="new-form"><div class="section-title">Nuevo quiz</div><input id="newTitle" placeholder="Título (ej: Julio 2026)"><input id="newMonth" placeholder="Mes/año (ej: Julio 2026)"><button class="btn-primary" onclick="createQuiz()">Crear quiz</button></div><div class="section-title">Mis quizzes</div><div id="quizList"></div>`;
+  const list=document.getElementById('quizList');
+  if(!quizzes.length){list.innerHTML='<div style="color:#8a7aaa;font-size:13px">No hay quizzes todavía.</div>';return;}
+  list.innerHTML=quizzes.map(q=>{
+    const sc=q.status==='draft'?'#8a7aaa':q.status==='active'?'#e8192c':'#16a34a';
+    const actions=q.status==='draft'
+      ?`<button class="btn btn-edit" onclick="editQuiz(${q.id},'${esc(q.title)}','${esc(q.month_year)}')">✏️ Editar</button><button class="btn btn-start" onclick="startSession(${q.id})">Jugar ▶</button>`
+      :q.status==='active'
+      ?`<button class="btn btn-retomar" onclick="retomar(${q.id})">Retomar →</button>`
+      :`<span style="font-size:11px;color:#16a34a;font-weight:700">✓ Finalizado</span>`;
+    return`<div class="quiz-card"><div class="quiz-info"><div class="title">${q.title}</div><div class="meta">${q.month_year} · <span style="color:${sc};font-weight:700">${q.status}</span></div></div><div class="quiz-actions">${actions}<button class="btn btn-del" onclick="delQuiz(${q.id})">✕</button></div></div>`;
+  }).join('');
+}
+async function createQuiz(){
+  const title=document.getElementById('newTitle').value.trim(),month_year=document.getElementById('newMonth').value.trim();
+  if(!title||!month_year)return;
+  await api('/api/quizzes','POST',{title,month_year});await renderQuizzes();
+}
+function editQuiz(id,title){
+  sessionStorage.setItem('editQuizId',id);sessionStorage.setItem('editQuizTitle',title);
+  window.location.href=BASE+'/host/refine';
+}
+async function delQuiz(id){
+  if(!confirm('¿Borrar este quiz?'))return;
+  await api('/api/quizzes/'+id,'DELETE');await renderQuizzes();
+}
+async function startSession(quizId){
+  const data=await api('/api/sessions/start','POST',{quizId});
+  if(data.error){alert(data.error);return;}
+  sessionStorage.setItem('sessionQr',data.qr);
+  sessionStorage.setItem('sessionJoinUrl',data.joinUrl);
+  window.location.href=BASE+'/host/lobby';
+}
+async function retomar(quizId){
+  const s=await api('/api/sessions/current');
+  if(!s){
+    if(confirm('La sesión se perdió (reinicio del servidor). ¿Resetear el quiz a draft para poder iniciarlo de nuevo?')){
+      await api('/api/quizzes/'+quizId+'/reset','POST');
+      await renderQuizzes();
+    }
+    return;
+  }
+  if(s.phase==='lobby'){window.location.href=BASE+'/host/lobby';}
+  else{window.location.href=BASE+'/host/game';}
+}
+async function renderRanking(){
+  const data=await api('/api/rankings/annual');
+  const medals=['🥇','🥈','🥉'];
+  document.getElementById('tabContent').innerHTML=`<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btn-del" onclick="archiveYear()">Guardar año →</button></div><div style="background:#fff;border-radius:14px;padding:16px;border:1px solid #e0d9f7"><div class="section-title">Ranking ${new Date().getFullYear()}</div>`+(data.length?data.map((r,i)=>`<div class="rank-row"><div style="width:28px;font-size:16px">${medals[i]||i+1}</div><span style="font-size:20px">${r.emoji}</span><div style="flex:1;font-size:13px;font-weight:700;color:#1a0a5e">${r.name}</div><div style="font-size:13px;font-weight:800;color:#6b2bd9">${r.total_points} pts</div></div>`).join(''):'<div style="color:#8a7aaa;font-size:13px">No hay datos todavía.</div>')+`</div>`;
+}
+async function archiveYear(){
+  if(!confirm('¿Guardar el año y resetear el ranking?'))return;
+  await api('/api/rankings/archive-year','POST');alert('Año guardado.');await renderRanking();
+}
+async function renderRoster(){
+  const data=await api('/api/roster');
+  document.getElementById('tabContent').innerHTML=`<div style="background:#fff;border-radius:14px;padding:16px;border:1px solid #e0d9f7"><div class="section-title">Jugadores registrados (${data.length})</div>`+data.map(p=>`<div class="rank-row"><span style="font-size:20px">${p.emoji}</span><div style="flex:1;font-size:13px;font-weight:700;color:#1a0a5e">${p.name}</div></div>`).join('')+`</div>`;
+}
+function esc(s){return(s||'').replace(/'/g,"&#39;");}
+showTab('quizzes',document.querySelector('.tab'));
+</script>
+</body></html>

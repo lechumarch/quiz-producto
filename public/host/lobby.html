@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quiz · Lobby</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#2A1070;min-height:100vh;display:flex;flex-direction:column}
+.topbar{background:#1a0a5e;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.logo{font-size:16px;font-weight:900;color:#fff}
+.player-count{font-size:13px;font-weight:700;color:#c4adff;background:rgba(107,43,217,.4);padding:4px 14px;border-radius:20px}
+.main{flex:1;display:flex;gap:0}
+.left{width:320px;flex-shrink:0;background:#1a0a5e;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;gap:16px}
+.qr-box{background:#fff;border-radius:16px;padding:16px;display:flex;flex-direction:column;align-items:center;gap:10px;width:100%}
+.qr-box img{width:200px;height:200px;border-radius:8px}
+.join-url{font-size:11px;color:#8a7aaa;text-align:center;word-break:break-all}
+.scan-hint{font-size:12px;font-weight:700;color:#c4adff;text-align:center}
+.start-btn{width:100%;padding:16px;border:none;border-radius:13px;background:#e8192c;color:#fff;font-size:16px;font-weight:900;cursor:pointer;margin-top:8px}
+.start-btn:disabled{background:#444;color:#888;cursor:not-allowed}
+.right{flex:1;position:relative;overflow:hidden}
+.arena{width:100%;height:100%;position:relative}
+.player-node{position:absolute;display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none;transition:none}
+.pem{font-size:40px}
+.pnm{font-size:11px;font-weight:700;color:#fff;background:rgba(0,0,0,.5);padding:2px 10px;border-radius:10px;white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis}
+.empty-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.2);font-size:16px;font-weight:700}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">✈ Quiz Producto · Lobby</div>
+  <div class="player-count" id="playerCount">0 jugadores</div>
+</div>
+<div class="main">
+  <div class="left">
+    <div class="scan-hint">📱 Escaneá para unirte</div>
+    <div class="qr-box">
+      <img id="qrImg" src="" alt="QR">
+      <div class="join-url" id="joinUrl">Cargando...</div>
+    </div>
+    <button class="start-btn" id="startBtn" onclick="startGame()">▶ ¡Empezar el quiz!</button>
+  </div>
+  <div class="right">
+    <div class="arena" id="arena"><div class="empty-hint" id="emptyHint">Los jugadores aparecerán acá cuando se unan</div></div>
+  </div>
+</div>
+<script>
+const BASE=location.pathname.split('/').slice(0,2).join('/');
+const WS_URL=(location.protocol==='https:'?'wss':'ws')+'://'+location.host+BASE+'/ws';
+let nodes=[],ws,lastT=0;
+
+async function init(){
+  const s=await fetch(BASE+'/host/api/sessions/current').then(r=>r.json()).catch(()=>null);
+  if(!s){window.location.href=BASE+'/host';return;}
+  if(s.phase!=='lobby'){window.location.href=BASE+'/host/game';return;}
+
+  let qr=sessionStorage.getItem('sessionQr'),joinUrl=sessionStorage.getItem('sessionJoinUrl');
+  if(!qr){
+    const d=await fetch(BASE+'/host/api/sessions/qr').then(r=>r.json()).catch(()=>null);
+    if(d){qr=d.qr;joinUrl=d.joinUrl;}
+  }
+  if(qr)document.getElementById('qrImg').src=qr;
+  if(joinUrl)document.getElementById('joinUrl').textContent=joinUrl;
+
+  connectWS();
+}
+
+function connectWS(){
+  ws=new WebSocket(WS_URL);
+  ws.onmessage=e=>{
+    const msg=JSON.parse(e.data);
+    if(msg.type==='LOBBY_UPDATE')updatePlayers(msg.players);
+    else if(msg.type==='PHASE_READING')window.location.href=BASE+'/host/game';
+  };
+  ws.onclose=()=>setTimeout(connectWS,2000);
+}
+
+function updatePlayers(players){
+  const arena=document.getElementById('arena');
+  const W=arena.offsetWidth-60,H=arena.offsetHeight-60;
+  const emptyHint=document.getElementById('emptyHint');
+  if(emptyHint)emptyHint.style.display=players.length?'none':'';
+  document.getElementById('playerCount').textContent=`${players.length} jugador${players.length!==1?'es':''}`;
+
+  const existing=new Map(nodes.map(n=>[n.name,n]));
+  nodes=players.map(p=>{
+    if(existing.has(p.name))return existing.get(p.name);
+    return{name:p.name,emoji:p.emoji,x:30+Math.random()*Math.max(W,100),y:30+Math.random()*Math.max(H,100),vx:(Math.random()-.5)*90,vy:(Math.random()-.5)*90};
+  });
+  if(nodes.length>0&&lastT===0)requestAnimationFrame(anim);
+}
+
+function anim(t){
+  if(!document.getElementById('arena'))return;
+  const dt=Math.min((t-lastT)/1000,.05);lastT=t;
+  const arena=document.getElementById('arena');if(!arena)return;
+  const W=arena.offsetWidth-60,H=arena.offsetHeight-60;
+  nodes.forEach(n=>{
+    n.x+=n.vx*dt;n.y+=n.vy*dt;
+    if(n.x<0){n.x=0;n.vx=Math.abs(n.vx);}if(n.x>W){n.x=W;n.vx=-Math.abs(n.vx);}
+    if(n.y<0){n.y=0;n.vy=Math.abs(n.vy);}if(n.y>H){n.y=H;n.vy=-Math.abs(n.vy);}
+  });
+  const hint=document.getElementById('emptyHint');
+  arena.innerHTML='';
+  if(hint)arena.appendChild(hint);
+  nodes.forEach(n=>{
+    const div=document.createElement('div');div.className='player-node';div.style.cssText=`left:${n.x}px;top:${n.y}px`;
+    div.innerHTML=`<div class="pem">${n.emoji}</div><div class="pnm">${n.name}</div>`;
+    arena.appendChild(div);
+  });
+  requestAnimationFrame(anim);
+}
+
+async function startGame(){
+  document.getElementById('startBtn').disabled=true;
+  await fetch(BASE+'/host/api/sessions/next',{method:'POST',headers:{'Content-Type':'application/json'}});
+  window.location.href=BASE+'/host/game';
+}
+
+init();
+</script>
+</body></html>

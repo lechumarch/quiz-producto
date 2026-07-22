@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quiz Admin · Editar</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F2F0FA;min-height:100vh;padding:24px}
+.hdr{display:flex;align-items:center;gap:12px;margin-bottom:24px}
+.back{font-size:13px;font-weight:700;color:#6b2bd9;cursor:pointer;text-decoration:none}
+.title{font-size:18px;font-weight:900;color:#1a0a5e}
+.q-card{background:#fff;border-radius:14px;padding:16px;margin-bottom:10px;border:1px solid #e0d9f7}
+.q-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.q-num{font-size:10px;font-weight:700;color:#6b2bd9;background:#ede8ff;padding:2px 8px;border-radius:8px;flex-shrink:0}
+.q-prompt{font-size:13px;font-weight:700;color:#1a0a5e;flex:1}
+.q-meta{font-size:11px;color:#8a7aaa;margin-top:4px}
+.q-actions{display:flex;gap:6px;margin-top:10px}
+.btn{padding:6px 12px;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer}
+.btn-edit{background:#f0edff;color:#6b2bd9}
+.btn-del{background:#f5f5f5;color:#8a7aaa}
+.form-card{background:#fff;border-radius:14px;padding:20px;border:2px solid #6b2bd9;margin-bottom:16px}
+.form-card h3{font-size:14px;font-weight:800;color:#1a0a5e;margin-bottom:14px}
+label{font-size:11px;font-weight:700;color:#6b2bd9;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:5px;margin-top:12px}
+input[type=text],input[type=number],select,textarea{width:100%;padding:10px;border:2px solid #e0d9f7;border-radius:9px;font-size:13px;color:#1a0a5e;outline:none}
+input:focus,select:focus,textarea:focus{border-color:#6b2bd9}
+textarea{min-height:80px;resize:vertical}
+.opt-row{display:flex;gap:6px;margin-bottom:6px}
+.opt-row input{margin:0}
+.btn-add-opt{background:#f0edff;color:#6b2bd9;border:none;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;margin-top:4px}
+.btn-primary{width:100%;padding:12px;border:none;border-radius:10px;background:#6b2bd9;color:#fff;font-size:14px;font-weight:800;cursor:pointer;margin-top:16px}
+.btn-secondary{width:100%;padding:12px;border:2px solid #e0d9f7;border-radius:10px;background:#fff;color:#6b2bd9;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <a class="back" id="backBtn">← Volver</a>
+  <div class="title" id="quizTitle">Editando quiz</div>
+</div>
+<div id="questionList"></div>
+<div id="formArea"></div>
+<button class="btn-primary" id="addBtn" onclick="showForm(null)">+ Agregar pregunta</button>
+<script>
+const BASE=location.pathname.split('/').slice(0,2).join('/');
+document.getElementById('backBtn').href=BASE+'/admin';
+const quizId=sessionStorage.getItem('editQuizId');
+const quizTitle=sessionStorage.getItem('editQuizTitle');
+if(!quizId){window.location.href=BASE+'/admin';}
+document.getElementById('quizTitle').textContent=quizTitle||'Quiz';
+const TYPE_LABELS={multiple_choice:'Opción múltiple',true_false:'Verdadero/Falso',rank:'Ordenar',estimation:'Estimación numérica',majority:'Mayoría manda'};
+let questions=[],editingId=null,options=[];
+async function api(path,method='GET',body){
+  const r=await fetch(BASE+'/admin'+path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  return r.json();
+}
+async function load(){questions=await api('/api/quizzes/'+quizId+'/questions');render();}
+function render(){
+  const list=document.getElementById('questionList');
+  list.innerHTML=questions.map((q,i)=>{
+    const opts=Array.isArray(q.options)?q.options.join(', '):'';
+    return`<div class="q-card"><div class="q-top"><div class="q-num">${i+1}</div><div class="q-prompt">${q.prompt}</div></div><div class="q-meta">${TYPE_LABELS[q.type]||q.type} · ${q.time_limit}s${opts?' · '+opts:''}</div><div class="q-actions"><button class="btn btn-edit" onclick="showForm(${i})">Editar</button><button class="btn btn-del" onclick="delQ(${q.id})">Borrar</button></div></div>`;
+  }).join('');
+}
+function showForm(idx){
+  editingId=idx!==null?questions[idx]?.id:null;
+  const q=idx!==null?questions[idx]:null;
+  options=q&&Array.isArray(q.options)?[...q.options]:['',''];
+  document.getElementById('formArea').innerHTML=buildForm(q);
+  updateTypeFields();
+  document.getElementById('formArea').scrollIntoView({behavior:'smooth'});
+}
+function buildForm(q){
+  const t=q?.type||'multiple_choice';
+  return`<div class="form-card"><h3>${editingId?'Editar pregunta':'Nueva pregunta'}</h3><label>Tipo</label><select id="fType" onchange="updateTypeFields()">`+Object.entries(TYPE_LABELS).map(([v,l])=>`<option value="${v}"${t===v?' selected':''}>${l}</option>`).join('')+`</select><label>Enunciado</label><textarea id="fPrompt">${q?.prompt||''}</textarea><label>Tiempo límite (segundos)</label><input type="number" id="fTime" value="${q?.time_limit||20}" min="5" max="120"><div id="typeFields"></div><button class="btn-primary" onclick="saveQuestion()">Guardar</button><button class="btn-secondary" onclick="document.getElementById('formArea').innerHTML=''">Cancelar</button></div>`;
+}
+function updateTypeFields(){
+  const t=document.getElementById('fType')?.value,area=document.getElementById('typeFields');
+  if(!area)return;
+  if(t==='multiple_choice'||t==='majority'||t==='rank'){
+    area.innerHTML=`<label>Opciones</label><div id="optsList">`+options.map((o,i)=>`<div class="opt-row"><input type="text" id="opt-${i}" value="${esc(o)}" placeholder="Opción ${i+1}"><button class="btn btn-del" onclick="removeOpt(${i})">✕</button></div>`).join('')+`</div><button class="btn-add-opt" onclick="addOpt()">+ Agregar opción</button>`+(t==='multiple_choice'?`<label>Respuesta correcta</label><select id="fCorrect">${options.map(o=>`<option>${esc(o)}</option>`).join('')}</select>`:'')+(t==='rank'?`<div style="font-size:11px;color:#8a7aaa;margin-top:8px">El orden en que las escribiste es el orden correcto.</div>`:'');
+  }else if(t==='true_false'){
+    area.innerHTML=`<label>Respuesta correcta</label><select id="fCorrect"><option>Verdadero</option><option>Falso</option></select>`;
+  }else if(t==='estimation'){
+    area.innerHTML=`<label>Valor real (número exacto)</label><input type="number" id="fCorrect" placeholder="ej: 2280000">`;
+  }
+}
+function addOpt(){syncOptions();options.push('');updateTypeFields();}
+function removeOpt(i){syncOptions();options.splice(i,1);updateTypeFields();}
+function syncOptions(){options=options.map((_,i)=>document.getElementById('opt-'+i)?.value||'');}
+async function saveQuestion(){
+  const type=document.getElementById('fType').value,prompt=document.getElementById('fPrompt').value.trim(),time_limit=parseInt(document.getElementById('fTime').value)||20;
+  if(!prompt)return alert('Falta el enunciado');
+  syncOptions();
+  const opts=(['multiple_choice','majority','rank'].includes(type))?options.filter(o=>o.trim()):null;
+  const correct=document.getElementById('fCorrect')?.value||null;
+  const body={type,prompt,options:opts,correct_answer:type==='rank'?JSON.stringify(opts):correct,time_limit,sort_order:questions.length};
+  if(editingId)await api('/api/questions/'+editingId,'PUT',body);
+  else await api('/api/quizzes/'+quizId+'/questions','POST',body);
+  document.getElementById('formArea').innerHTML='';await load();
+}
+async function delQ(id){
+  if(!confirm('¿Borrar pregunta?'))return;
+  await api('/api/questions/'+id,'DELETE');await load();
+}
+function esc(s){return(s||'').replace(/"/g,'&quot;');}
+load();
+</script>
+</body></html>

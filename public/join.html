@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quiz Producto</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F2F0FA;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:28px 16px}
+.logo{font-size:26px;font-weight:900;color:#1a0a5e;margin-bottom:2px}
+.sub{font-size:13px;color:#8a7aaa;margin-bottom:24px}
+.card{background:#fff;border-radius:20px;padding:22px;width:100%;max-width:380px;box-shadow:0 2px 20px rgba(107,43,217,.1);border:1px solid #e0d9f7}
+label{display:block;font-size:11px;font-weight:700;color:#6b2bd9;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}
+.search-wrap{position:relative}
+.search-wrap input{width:100%;padding:13px 15px 13px 40px;border:2px solid #e0d9f7;border-radius:11px;font-size:16px;color:#1a0a5e;font-weight:600;outline:none;background:#fff}
+.search-wrap input:focus{border-color:#6b2bd9}
+.search-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:16px;pointer-events:none}
+.player-list{margin-top:10px;max-height:280px;overflow-y:auto}
+.player-row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;cursor:pointer;transition:background .12s}
+.player-row:hover,.player-row:active{background:#f0edff}
+.p-name{font-size:15px;font-weight:700;color:#1a0a5e}
+.p-hint{font-size:11px;color:#8a7aaa;margin-top:1px}
+.divider{height:1px;background:#f0edff;margin:4px 0}
+.new-row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;cursor:pointer;transition:background .12s;color:#6b2bd9}
+.new-row:hover{background:#f0edff}
+.new-icon{width:36px;height:36px;border-radius:50%;background:#ede8ff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.new-label{font-size:15px;font-weight:700}
+.new-sub{font-size:11px;color:#8a7aaa;margin-top:1px}
+.empty{text-align:center;padding:20px 0;color:#8a7aaa;font-size:13px}
+.emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin-top:8px}
+.em{aspect-ratio:1;font-size:20px;border:2px solid transparent;border-radius:9px;cursor:pointer;background:#f7f5ff;display:flex;align-items:center;justify-content:center}
+.em.sel{border-color:#6b2bd9;background:#ede8ff}
+.join-btn{width:100%;padding:15px;border:none;border-radius:13px;background:#e8192c;color:#fff;font-size:16px;font-weight:800;cursor:pointer;margin-top:18px}
+.join-btn:disabled{background:#ccc;cursor:not-allowed}
+.back-btn{background:none;border:none;color:#6b2bd9;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:14px;padding:0;display:flex;align-items:center;gap:4px}
+.no-session{text-align:center;padding:40px 24px}
+.no-session .icon{font-size:48px;margin-bottom:16px}
+.no-session h2{font-size:18px;font-weight:900;color:#1a0a5e;margin-bottom:8px}
+.no-session p{font-size:13px;color:#8a7aaa;line-height:1.5}
+.av-circle{width:88px;height:88px;border-radius:50%;background:#ede8ff;border:3px dashed #c4adff;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;transition:border-color .15s;margin:0 auto}
+.av-circle:hover{border-color:#6b2bd9}
+.av-circle img{width:100%;height:100%;object-fit:cover;display:block}
+.av-hint{font-size:11px;color:#8a7aaa;margin-top:6px;text-align:center}
+</style>
+</head>
+<body>
+<div class="logo">✈ Quiz Producto</div>
+<div class="sub">Mensual Despegar</div>
+<div id="content"><div style="color:#8a7aaa;font-size:13px">Verificando sesión...</div></div>
+<script>
+const BASE=location.pathname.split('/').slice(0,2).join('/');
+const EMOJIS=['🚀','⚡','🎯','🔥','🌟','💎','🦁','🐯','🦊','🐺','🦋','🐙','🦄','🐲','🌈','🎸','🎨','🏆','⚽','🎮','🍕','🌮','🎂','🍦','🌺','🌸','🍀','🌊','🏔','🌙','☀️','❄️'];
+let allPlayers=[],displayedPlayers=[];
+
+async function cropAvatar(file){
+  return new Promise(resolve=>{
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const img=new Image();
+      img.onload=()=>{
+        const size=128,canvas=document.createElement('canvas');
+        canvas.width=size;canvas.height=size;
+        const ctx=canvas.getContext('2d');
+        ctx.beginPath();ctx.arc(size/2,size/2,size/2,0,Math.PI*2);ctx.clip();
+        const min=Math.min(img.naturalWidth,img.naturalHeight);
+        ctx.drawImage(img,(img.naturalWidth-min)/2,(img.naturalHeight-min)/2,min,min,0,0,size,size);
+        resolve(canvas.toDataURL('image/jpeg',0.85));
+      };
+      img.src=e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function avHtml(p,size){
+  size=size||36;
+  if(p.avatar_url)return'<img src="'+p.avatar_url+'" style="width:'+size+'px;height:'+size+'px;border-radius:50%;object-fit:cover;flex-shrink:0">';
+  return'<div style="width:'+size+'px;height:'+size+'px;border-radius:50%;background:#ede8ff;display:flex;align-items:center;justify-content:center;font-size:'+Math.round(size*.6)+'px;flex-shrink:0">'+p.emoji+'</div>';
+}
+
+async function init(){
+  const [s,players]=await Promise.all([
+    fetch(BASE+'/api/session/state').then(r=>r.json()).catch(()=>null),
+    fetch(BASE+'/api/players').then(r=>r.json()).catch(()=>[])
+  ]);
+  allPlayers=players||[];
+  if(!s||s.phase==='finished'){showNoSession();}else{showSearch();}
+}
+
+function showNoSession(){
+  document.getElementById('content').innerHTML='<div class="no-session"><div class="icon">⏳</div><h2>No hay quiz activo</h2><p>Esperá que el host inicie el quiz.<br>Recargá la página cuando te avisen.</p></div>';
+}
+
+function showSearch(){
+  document.getElementById('content').innerHTML=
+  '<div class="card">'+
+  '<label>¿Cómo te llamás?</label>'+
+  '<div class="search-wrap"><span class="search-icon">🔍</span>'+
+  '<input type="text" id="searchInput" placeholder="Escribí tu nombre..." autocomplete="off" autocorrect="off" spellcheck="false">'+
+  '</div><div class="player-list" id="playerList"></div></div>';
+  const input=document.getElementById('searchInput');
+  input.addEventListener('input',()=>renderList(input.value.trim()));
+  input.focus();
+  renderList('');
+}
+
+function normalize(s){return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');}
+
+function renderList(query){
+  const list=document.getElementById('playerList');if(!list)return;
+  const q=normalize(query);
+  const filtered=q?allPlayers.filter(p=>normalize(p.name).includes(q)):allPlayers;
+  const exactMatch=allPlayers.some(p=>normalize(p.name)===q);
+  displayedPlayers=filtered.slice(0,8);
+  let html='';
+  displayedPlayers.forEach(function(p,i){
+    if(i>0)html+='<div class="divider"></div>';
+    html+='<div class="player-row" onclick="showProfile('+i+')">'+avHtml(p,36)+'<div><div class="p-name">'+p.name+'</div><div class="p-hint">Jugador registrado</div></div></div>';
+  });
+  if(!exactMatch&&query.length>0){
+    if(displayedPlayers.length>0)html+='<div class="divider"></div>';
+    html+='<div class="new-row" onclick="showCreate(\''+esc(query)+'\')"><div class="new-icon">✨</div><div><div class="new-label">Soy nuevo: &quot;'+query+'&quot;</div><div class="new-sub">Elegí emoji y foto</div></div></div>';
+  } else if(query.length===0&&allPlayers.length===0){
+    html='<div class="empty">Escribí tu nombre para continuar</div>';
+  } else if(query.length===0){
+    html+='<div class="divider"></div><div class="new-row" onclick="showCreate(\'\')"><div class="new-icon">✨</div><div><div class="new-label">Soy nuevo</div><div class="new-sub">Registrarme por primera vez</div></div></div>';
+  }
+  list.innerHTML=html;
+}
+
+function showProfile(idx){
+  var player=displayedPlayers[idx];
+  var pendingAvatar=null;
+  document.getElementById('content').innerHTML=
+  '<div class="card">'+
+  '<button class="back-btn" onclick="showSearch()">&#8592; Volver</button>'+
+  '<div style="margin-bottom:16px">'+
+  '<div class="av-circle" id="profAvCircle" onclick="document.getElementById(\'profAvFile\').click()">'+
+  (player.avatar_url?'<img src="'+player.avatar_url+'">':'<span style="font-size:40px">'+player.emoji+'</span>')+
+  '</div>'+
+  '<div class="av-hint">Tocá para cambiar foto</div>'+
+  '</div>'+
+  '<input type="file" id="profAvFile" accept="image/*" capture="user" style="display:none">'+
+  '<div style="text-align:center;font-size:20px;font-weight:900;color:#1a0a5e;margin-bottom:20px">'+player.name+'</div>'+
+  '<button class="join-btn" id="profJoinBtn">Unirme &#8594;</button>'+
+  '</div>';
+  document.getElementById('profAvFile').addEventListener('change',async function(e){
+    var file=e.target.files[0];if(!file)return;
+    pendingAvatar=await cropAvatar(file);
+    document.getElementById('profAvCircle').innerHTML='<img src="'+pendingAvatar+'">';
+  });
+  document.getElementById('profJoinBtn').addEventListener('click',async function(){
+    var btn=document.getElementById('profJoinBtn');
+    btn.disabled=true;btn.textContent='Entrando...';
+    if(pendingAvatar){
+      await fetch(BASE+'/api/players/avatar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:player.name,avatar:pendingAvatar})}).catch(function(){});
+      sessionStorage.setItem('pAvatar',pendingAvatar);
+    } else {
+      if(player.avatar_url)sessionStorage.setItem('pAvatar',player.avatar_url);
+      else sessionStorage.removeItem('pAvatar');
+    }
+    sessionStorage.setItem('pName',player.name);
+    sessionStorage.setItem('pEmoji',player.emoji);
+    window.location.href=BASE+'/play';
+  });
+}
+
+function showCreate(prefill){
+  var selectedEmoji=null,selectedAvatar=null;
+  document.getElementById('content').innerHTML=
+  '<div class="card">'+
+  '<button class="back-btn" onclick="showSearch()">&#8592; Volver</button>'+
+  '<label>Tu nombre</label>'+
+  '<div class="search-wrap" style="margin-bottom:18px">'+
+  '<span class="search-icon">✨</span>'+
+  '<input type="text" id="newName" placeholder="Escribí tu nombre" autocomplete="off" autocorrect="off" spellcheck="false" value="'+esc(prefill)+'">'+
+  '</div>'+
+  '<label>Tu emoji (para siempre &#10003;)</label>'+
+  '<div class="emoji-grid" id="emojiGrid"></div>'+
+  '<label style="margin-top:16px">Tu foto (opcional)</label>'+
+  '<div class="av-circle" id="newAvCircle" onclick="document.getElementById(\'newAvFile\').click()" style="margin-top:8px">'+
+  '<span style="font-size:32px;color:#c4adff">📷</span>'+
+  '</div>'+
+  '<div class="av-hint">Tocá para agregar una foto</div>'+
+  '<input type="file" id="newAvFile" accept="image/*" capture="user" style="display:none">'+
+  '<button class="join-btn" id="joinBtn" disabled>Unirme &#8594;</button>'+
+  '</div>';
+  var grid=document.getElementById('emojiGrid');
+  EMOJIS.forEach(function(em){
+    var btn=document.createElement('button');btn.className='em';btn.textContent=em;
+    btn.onclick=function(){
+      document.querySelectorAll('.em').forEach(function(b){b.classList.remove('sel');});
+      btn.classList.add('sel');selectedEmoji=em;
+      if(!selectedAvatar){var c=document.getElementById('newAvCircle');if(c)c.innerHTML='<span style="font-size:40px">'+em+'</span>';}
+      check();
+    };
+    grid.appendChild(btn);
+  });
+  document.getElementById('newAvFile').addEventListener('change',async function(e){
+    var file=e.target.files[0];if(!file)return;
+    selectedAvatar=await cropAvatar(file);
+    document.getElementById('newAvCircle').innerHTML='<img src="'+selectedAvatar+'">';
+  });
+  var nameInput=document.getElementById('newName');
+  nameInput.addEventListener('input',check);
+  function check(){
+    var n=nameInput.value.trim();
+    var taken=allPlayers.some(function(p){return normalize(p.name)===normalize(n);});
+    document.getElementById('joinBtn').disabled=!(n&&selectedEmoji&&!taken);
+    nameInput.style.borderColor=(taken&&n)?'#e8192c':'';
+  }
+  document.getElementById('joinBtn').addEventListener('click',async function(){
+    var name=nameInput.value.trim();
+    if(!name||!selectedEmoji)return;
+    var btn=document.getElementById('joinBtn');
+    btn.disabled=true;btn.textContent='Entrando...';
+    if(selectedAvatar)sessionStorage.setItem('pAvatar',selectedAvatar);
+    else sessionStorage.removeItem('pAvatar');
+    sessionStorage.setItem('pName',name);
+    sessionStorage.setItem('pEmoji',selectedEmoji);
+    window.location.href=BASE+'/play';
+  });
+  if(prefill)check();else nameInput.focus();
+}
+function esc(s){return(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+init();
+</script>
+</body></html>

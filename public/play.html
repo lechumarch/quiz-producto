@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quiz Producto</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F2F0FA;min-height:100vh}
+#screen{display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:20px 16px}
+.hdr{width:100%;max-width:400px;display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.logo-sm{font-size:14px;font-weight:800;color:#1a0a5e}
+.card{background:#fff;border-radius:18px;padding:20px;width:100%;max-width:400px;border:1px solid #e0d9f7;margin-bottom:12px}
+.tag{display:inline-block;font-size:10px;font-weight:700;color:#6b2bd9;background:#ede8ff;padding:3px 10px;border-radius:12px;border:1px solid #c4adff;margin-bottom:10px}
+.question-text{font-size:15px;font-weight:800;color:#1a0a5e;line-height:1.4}
+.opt-btn{display:block;width:100%;padding:14px 16px;margin-bottom:8px;border:2px solid #e0d9f7;border-radius:12px;background:#fff;font-size:14px;font-weight:700;color:#1a0a5e;cursor:pointer;text-align:left}
+.opt-btn.selected{border-color:#6b2bd9;background:#f0edff}
+.opt-btn.correct{border-color:#16a34a;background:#f0fdf4;color:#15803d}
+.opt-btn.wrong{border-color:#e8192c;background:#fff0f2;color:#e8192c}
+.timer-bar{height:6px;background:#e0d9f7;border-radius:3px;overflow:hidden;width:100%;max-width:400px;margin-bottom:12px}
+.timer-fill{height:100%;background:#e8192c;border-radius:3px;transition:width 1s linear}
+.big-num{font-size:46px;font-weight:900;color:#1a0a5e;text-align:center;letter-spacing:-2px}
+.numpad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:100%;max-width:400px}
+.np{background:#fff;border:2px solid #c4adff;border-radius:11px;padding:14px;font-size:20px;font-weight:800;color:#1a0a5e;cursor:pointer;text-align:center}
+.np-ok{background:#e8192c;border:none;border-radius:11px;padding:14px;font-size:13px;font-weight:800;color:#fff;cursor:pointer}
+.rank-item{display:flex;align-items:center;gap:10px;padding:12px;background:#f7f5ff;border:2px solid #e0d9f7;border-radius:11px;margin-bottom:8px;cursor:pointer}
+.rank-num{width:26px;height:26px;border-radius:50%;background:#e0d9f7;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#6b2bd9}
+.rank-num.placed{background:#6b2bd9;color:#fff}
+.confirm-btn{width:100%;max-width:400px;padding:15px;border:none;border-radius:13px;background:#e8192c;color:#fff;font-size:15px;font-weight:800;cursor:pointer;margin-top:8px}
+.confirm-btn:disabled{background:#ccc;cursor:not-allowed}
+.result-icon{font-size:36px;text-align:center;margin:4px 0}
+.result-big{font-size:16px;font-weight:900;color:#1a0a5e;text-align:center}
+.pts{font-size:24px;font-weight:900;color:#6b2bd9;text-align:center}
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.bar-label{font-size:11px;font-weight:700;color:#1a0a5e;width:80px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-bg{flex:1;height:28px;background:#f0edff;border-radius:6px;overflow:hidden}
+.bar-fill{height:100%;background:#6b2bd9;border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;font-size:11px;font-weight:800;color:#fff;min-width:28px}
+.rank-table{width:100%}
+.rank-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0edff}
+.pos{font-size:16px;font-weight:900;color:#6b2bd9;width:24px}
+.rname{flex:1;font-size:13px;font-weight:700;color:#1a0a5e}
+.rpts{font-size:13px;font-weight:800;color:#6b2bd9}
+.lobby-arena{width:100%;height:260px;position:relative;overflow:hidden;background:#fff;border-radius:16px;border:1px solid #e0d9f7}
+.player-node{position:absolute;display:flex;flex-direction:column;align-items:center;gap:3px;pointer-events:none}
+.player-em{font-size:28px}
+.player-nm{font-size:9px;font-weight:700;color:#1a0a5e;background:#fff;padding:1px 5px;border-radius:8px;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.waiting{font-size:13px;color:#8a7aaa;text-align:center;margin-top:12px}
+@keyframes slideIn{from{transform:translateX(40px);opacity:0}to{transform:translateX(0);opacity:1}}
+</style>
+</head>
+<body>
+<div id="screen"><div class="waiting">Conectando...</div></div>
+<script>
+const BASE=location.pathname.split('/').slice(0,2).join('/');
+const name=sessionStorage.getItem('pName');
+const emoji=sessionStorage.getItem('pEmoji');
+const avatar=sessionStorage.getItem('pAvatar');
+if(!name||!emoji){window.location.href=BASE+'/join';}
+const screen=document.getElementById('screen');
+const WS_URL=(location.protocol==='https:'?'wss':'ws')+'://'+location.host+BASE+'/ws';
+let ws,timerInterval,nodes=[];
+let prevRankings=[];
+let answered=false,numDisplay='',rankOrder=[],currentQ=null;
+function connect(){
+  ws=new WebSocket(WS_URL);
+  var joinMsg={type:'JOIN',name:name,emoji:emoji};
+  if(avatar)joinMsg.avatar=avatar;
+  ws.onopen=function(){ws.send(JSON.stringify(joinMsg));};
+  ws.onmessage=function(e){handle(JSON.parse(e.data));};
+  ws.onclose=function(){setTimeout(connect,2000);};
+}
+function handle(msg){
+  if(msg.type==='JOINED'){showLobby([]);}
+  else if(msg.type==='LOBBY_UPDATE'){showLobby(msg.players);}
+  else if(msg.type==='PHASE_READING'){showReading(msg);}
+  else if(msg.type==='PHASE_ANSWERING'){showAnswering(msg);}
+  else if(msg.type==='ANSWER_RECEIVED'){showAnswerSent();}
+  else if(msg.type==='PHASE_QUESTION_RESULTS'){showResults(msg);}
+  else if(msg.type==='PHASE_WAITING'){showWaiting(msg.players);}
+  else if(msg.type==='PHASE_FINISHED'){showFinished(msg);}
+}
+function header(right){return'<div class="hdr"><span class="logo-sm">✈ Quiz</span><span style="font-size:11px;color:#8a7aaa">'+(right||'')+'</span></div>';}
+var lastT=0;
+function playerIcon(p,size){
+  size=size||28;
+  if(p.avatar_url)return'<img src="'+p.avatar_url+'" style="width:'+size+'px;height:'+size+'px;border-radius:50%;object-fit:cover;border:2px solid #fff">';
+  return'<div class="player-em">'+p.emoji+'</div>';
+}
+function rankIcon(r){
+  if(r.avatar_url)return'<img src="'+r.avatar_url+'" style="width:22px;height:22px;border-radius:50%;object-fit:cover;flex-shrink:0">';
+  return'<span style="font-size:18px">'+r.emoji+'</span>';
+}
+function showLobby(players){
+  clearInterval(timerInterval);
+  screen.innerHTML=header('')+'<div class="lobby-arena" id="arena"></div><div class="waiting" id="lobbyCount">'+players.length+' jugador'+(players.length!==1?'es':'')+' en la sala &middot; Esperando al admin...</div>';
+  nodes=players.map(function(p){return{name:p.name,emoji:p.emoji,avatar_url:p.avatar_url||null,x:30+Math.random()*240,y:30+Math.random()*200,vx:(Math.random()-.5)*80,vy:(Math.random()-.5)*80};});
+  requestAnimationFrame(animateLobby);
+}
+function animateLobby(t){
+  if(!document.getElementById('arena'))return;
+  var dt=Math.min((t-lastT)/1000,.05);lastT=t;
+  var arena=document.getElementById('arena');if(!arena)return;
+  var W=arena.offsetWidth-60,H=arena.offsetHeight-60;
+  nodes.forEach(function(n){
+    n.x+=n.vx*dt;n.y+=n.vy*dt;
+    if(n.x<0){n.x=0;n.vx=Math.abs(n.vx);}if(n.x>W){n.x=W;n.vx=-Math.abs(n.vx);}
+    if(n.y<0){n.y=0;n.vy=Math.abs(n.vy);}if(n.y>H){n.y=H;n.vy=-Math.abs(n.vy);}
+  });
+  arena.innerHTML=nodes.map(function(n){
+    return'<div class="player-node" style="left:'+n.x+'px;top:'+n.y+'px">'+playerIcon(n)+'<div class="player-nm">'+n.name+'</div></div>';
+  }).join('');
+  requestAnimationFrame(animateLobby);
+}
+var TYPE_LABELS={multiple_choice:'Elegí la correcta',true_false:'Verdadero o Falso',rank:'Orderá las opciones',estimation:'Estimación numérica',majority:'La mayoría manda'};
+function showReading(msg){
+  clearInterval(timerInterval);
+  var left=msg.duration;
+  var typeLabel=TYPE_LABELS[msg.question.type]||msg.question.type;
+  screen.innerHTML=header((msg.questionIndex+1)+'/'+msg.total)+
+    (msg.question.imageUrl?'<img src="'+msg.question.imageUrl+'" style="width:100%;max-width:400px;border-radius:12px;margin-bottom:12px;object-fit:cover;max-height:180px">':'')+
+    '<div class="card"><div class="tag">'+typeLabel+'</div><div class="question-text">'+msg.question.prompt+'</div></div>'+
+    '<div class="waiting">Leé la pregunta... <span id="rCount">'+left+'</span>s</div>';
+  timerInterval=setInterval(function(){left--;var el=document.getElementById('rCount');if(el)el.textContent=left;if(left<=0)clearInterval(timerInterval);},1000);
+}
+function showAnswering(msg){
+  clearInterval(timerInterval);
+  currentQ=msg.question;answered=false;numDisplay='';rankOrder=[];
+  var typeLabel=TYPE_LABELS[msg.question.type]||msg.question.type;
+  screen.innerHTML=header((msg.questionIndex+1)+'/'+msg.total)+
+    '<div class="timer-bar"><div class="timer-fill" id="tFill" style="width:100%"></div></div>'+
+    (msg.question.imageUrl?'<img src="'+msg.question.imageUrl+'" style="width:100%;max-width:400px;border-radius:12px;margin-bottom:12px;object-fit:cover;max-height:160px">':'')+
+    '<div class="card"><div class="tag">'+typeLabel+'</div><div class="question-text">'+msg.question.prompt+'</div></div>'+
+    buildInput(msg.question);
+  startTimer(msg.question.timeLimit);
+  if(msg.question.type==='rank')attachRankHandlers(msg.question.options);
+}
+function buildInput(q){
+  if(q.type==='multiple_choice'||q.type==='majority')return(q.options||[]).map(function(o){return'<button class="opt-btn" onclick="submitAnswer(\''+esc(o)+'\',this)">'+o+'</button>';}).join('');
+  if(q.type==='true_false')return'<button class="opt-btn" onclick="submitAnswer(\'Verdadero\',this)">✅ Verdadero</button><button class="opt-btn" onclick="submitAnswer(\'Falso\',this)">❌ Falso</button>';
+  if(q.type==='estimation')return'<div class="card" id="numCard"><div class="big-num" id="numDisp">0<span style="display:inline-block;width:2px;height:40px;background:#6b2bd9;margin-left:1px;vertical-align:middle"></span></div></div><div class="numpad">'+'<button class="np" onclick="numTap(\'1\')">1</button><button class="np" onclick="numTap(\'2\')">2</button><button class="np" onclick="numTap(\'3\')">3</button><button class="np" onclick="numTap(\'4\')">4</button><button class="np" onclick="numTap(\'5\')">5</button><button class="np" onclick="numTap(\'6\')">6</button><button class="np" onclick="numTap(\'7\')">7</button><button class="np" onclick="numTap(\'8\')">8</button><button class="np" onclick="numTap(\'9\')">9</button><button class="np" onclick="numTap(\'.\')">.</button><button class="np" onclick="numTap(\'0\')">0</button><button class="np" onclick="numTap(\'⌫\')">&#x232b;</button>'+'</div><button class="np-ok" style="width:100%;max-width:400px;margin-top:8px" onclick="submitNum()">OK &#8594;</button>';
+  if(q.type==='rank')return'<div id="rankList">'+(q.options||[]).map(function(o,i){return'<div class="rank-item" id="ri-'+i+'" data-val="'+esc(o)+'"><div class="rank-num" id="rn-'+i+'">?</div><span style="font-size:13px;font-weight:700;color:#1a0a5e">'+o+'</span></div>';}).join('')+'</div><button class="confirm-btn" id="rankConfirm" disabled onclick="submitRank()">Confirmar orden &#8594;</button>';
+  return'';
+}
+function attachRankHandlers(options){
+  if(!options)return;
+  function refreshVisuals(){
+    options.forEach(function(_,j){
+      var jEl=document.getElementById('ri-'+j);
+      var jNum=document.getElementById('rn-'+j);
+      if(!jEl||!jNum)return;
+      var jPos=rankOrder.indexOf(jEl.dataset.val);
+      if(jPos!==-1){jNum.textContent=jPos+1;jNum.classList.add('placed');jEl.style.borderColor='#6b2bd9';}
+      else{jNum.textContent='?';jNum.classList.remove('placed');jEl.style.borderColor='';}
+    });
+    var confirmBtn=document.getElementById('rankConfirm');
+    if(confirmBtn)confirmBtn.disabled=rankOrder.length!==options.length;
+  }
+  options.forEach(function(_,i){
+    var el=document.getElementById('ri-'+i);if(!el)return;
+    el.onclick=function(){
+      var val=el.dataset.val;
+      var existingIdx=rankOrder.indexOf(val);
+      if(existingIdx!==-1){rankOrder.splice(existingIdx,1);}else{rankOrder.push(val);}
+      refreshVisuals();
+    };
+  });
+}
+function numTap(n){if(answered)return;if(n==='⌫'){numDisplay=numDisplay.slice(0,-1);}else if(n==='.'){if(numDisplay.includes('.')||numDisplay.length>=10)return;numDisplay+=n;}else{if(numDisplay.length>=10)return;numDisplay+=n;}var el=document.getElementById('numDisp');if(el)el.innerHTML=(numDisplay||'0')+'<span style="display:inline-block;width:2px;height:40px;background:#6b2bd9;margin-left:1px;vertical-align:middle"></span>';}
+function submitNum(){if(answered||!numDisplay||numDisplay==='.')return;submitAnswer(numDisplay,null);}
+function submitRank(){if(answered)return;submitAnswer(JSON.stringify(rankOrder),null);}
+function submitAnswer(value,btn){
+  if(answered)return;answered=true;
+  document.querySelectorAll('.opt-btn').forEach(function(b){b.disabled=true;});
+  if(btn)btn.classList.add('selected');
+  ws.send(JSON.stringify({type:'ANSWER',value:value}));
+}
+function esc(s){return(s||'').replace(/'/g,"&#39;");}
+function startTimer(seconds){
+  var left=seconds;
+  var fill=document.getElementById('tFill');
+  timerInterval=setInterval(function(){left--;if(fill)fill.style.width=(left/seconds*100)+'%';if(left<=0)clearInterval(timerInterval);},1000);
+}
+function showAnswerSent(){
+  var existing=document.querySelector('.waiting');
+  if(!existing){var w=document.createElement('div');w.className='waiting';w.textContent='¡Respuesta enviada! Esperando a los demás...';screen.appendChild(w);}
+}
+function animateCount(el,from,to,duration){
+  var start=performance.now();
+  function step(now){var p=Math.min((now-start)/duration,1);el.textContent=Math.round(from+(to-from)*p)+' pts';if(p<1)requestAnimationFrame(step);}
+  requestAnimationFrame(step);
+}
+function showResults(msg){
+  clearInterval(timerInterval);
+  var icon=msg.myCorrect?'🎉':'😬',text=msg.myCorrect?'¡Correcto!':'Mmm, no era esa...';
+  if(msg.questionType==='rank'){if(msg.myPoints>700){icon='🎉';text='¡Buen orden!';}else if(msg.myPoints>0){icon='🎯';text='Orden parcial';}else{icon='🙈';text='Sin pares correctos';}}
+  if(msg.questionType==='estimation'){icon='🎯';text='Tu estimación';}
+  if(msg.questionType==='majority'){icon='🤝';text='Mayoría manda';}
+  var rankings=msg.rankings||[];
+  var prevMap={};prevRankings.forEach(function(r,i){prevMap[r.name]={pos:i+1,pts:r.total_points};});
+  var lbHTML=rankings.slice(0,10).map(function(r,i){
+    var isMe=r.name===name;
+    var prev=prevMap[r.name];
+    var arrow='';
+    if(prev&&prev.pos!==i+1){var d=prev.pos-(i+1);arrow='<span style="font-size:11px;color:'+(d>0?'#16a34a':'#e8192c')+';font-weight:800;margin-left:4px">'+(d>0?'&#8593;':'&#8595;')+Math.abs(d)+'</span>';}
+    var fromPts=prev?prev.pts:0;
+    return'<div class="rank-row" style="animation:slideIn .3s ease '+(i*0.05)+'s both'+(isMe?';background:#f0edff;border-radius:8px;padding:8px;margin:-2px 0':'')+'" ><div class="pos">'+(i+1)+'</div>'+rankIcon(r)+'<div class="rname" style="'+(isMe?'color:#6b2bd9;font-weight:900':'')+'" >'+r.name+arrow+'</div><div class="rpts" id="pts-'+i+'" data-from="'+fromPts+'" data-to="'+r.total_points+'" >'+fromPts+' pts</div></div>';
+  }).join('');
+  var estimHtml='';
+  if(msg.questionType==='estimation'&&msg.myAnswer!=null){
+    var mine=parseFloat(msg.myAnswer)||0,real=parseFloat(msg.correctAnswer)||0,dist=real?Math.round(Math.abs(mine-real)/real*100):0;
+    estimHtml='<div style="font-size:12px;color:#6b2bd9;margin-top:8px">Tu respuesta: <b>'+mine.toLocaleString('es-AR')+'</b><br>Valor real: <b>'+real.toLocaleString('es-AR')+'</b> &middot; '+dist+'% de diferencia</div>';
+  }
+  screen.innerHTML=header('')+
+    '<div class="card" style="text-align:center;padding:12px"><div class="result-icon">'+icon+'</div><div class="result-big">'+text+'</div>'+estimHtml+(msg.myPoints?'<div class="pts">+'+msg.myPoints+' pts</div>':'')+'</div>'+
+    '<div class="card"><div class="tag">Clasificación</div><div class="rank-table">'+lbHTML+'</div></div>';
+  rankings.slice(0,10).forEach(function(_,i){
+    var el=document.getElementById('pts-'+i);if(!el)return;
+    var from=parseInt(el.dataset.from)||0,to=parseInt(el.dataset.to)||0;
+    setTimeout(function(){animateCount(el,from,to,1200);},i*50+300);
+  });
+  prevRankings=rankings;
+}
+function showWaiting(players){
+  clearInterval(timerInterval);
+  screen.innerHTML=header('')+'<div class="lobby-arena" id="arena"></div><div class="waiting">Siguiente pregunta...</div>';
+  nodes=(players||[]).map(function(p){return{name:p.name,emoji:p.emoji,avatar_url:p.avatar_url||null,x:30+Math.random()*240,y:30+Math.random()*200,vx:(Math.random()-.5)*80,vy:(Math.random()-.5)*80};});
+  requestAnimationFrame(animateLobby);
+}
+function showFinished(msg){
+  clearInterval(timerInterval);
+  var c=msg.champion;
+  var medals=['🥇','🥈','🥉'];
+  var champImg=c&&c.avatar_url
+    ?'<img src="'+c.avatar_url+'" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.4);margin:8px auto;display:block">'
+    :'<div style="font-size:40px">'+(c?c.emoji:'🎉')+'</div>';
+  screen.innerHTML=header('')+
+    '<div class="card" style="text-align:center;background:linear-gradient(135deg,#2A1070,#6b2bd9);border:none">'+
+    '<div style="font-size:48px">🏆</div>'+
+    '<div style="font-size:22px;font-weight:900;color:#fff;margin:8px 0">¡Campeón del mes!</div>'+
+    champImg+
+    '<div style="font-size:20px;font-weight:800;color:#fff">'+(c?c.name:'')+'</div>'+
+    '<div style="font-size:14px;color:#c4adff;margin-top:4px">'+(c?c.total_points:0)+' puntos</div></div>'+
+    '<div class="card"><div class="tag">Resultado final</div><div class="rank-table">'+
+    (msg.rankings||[]).slice(0,10).map(function(r,i){
+      var isMe=r.name===name;
+      return'<div class="rank-row" style="'+(isMe?'background:#f0edff;border-radius:8px;padding:8px;margin:-2px 0':'')+'" ><div class="pos">'+(medals[i]||i+1)+'</div>'+rankIcon(r)+'<div class="rname" style="'+(isMe?'color:#6b2bd9;font-weight:900':'')+'" >'+r.name+'</div><div class="rpts">'+r.total_points+' pts</div></div>';
+    }).join('')+
+    '</div></div>';
+}
+connect();
+</script>
+</body></html>
