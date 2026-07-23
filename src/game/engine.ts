@@ -3,7 +3,7 @@ import { pool } from '../db';
 import { ActiveSession, DbQuestion, PlayerAnswer } from '../types';
 import { computePoints } from './scoring';
 
-const READING_MS = 5000;
+const READING_MS = 8000;
 
 let session: ActiveSession | null = null;
 let lastEventId = 0;
@@ -206,6 +206,10 @@ export async function handlePlayerAnswer(ws: WebSocket, value: string): Promise<
   session.answers[q.id][client.playerId] = { value, answeredAt: timeUsedMs, points: 0 };
   send(ws, { type: 'ANSWER_RECEIVED' });
 
+  const answeredNow = Object.keys(session.answers[q.id]).length;
+  const totalConnected = [...clients.values()].filter(c => c.playerId).length;
+  localBroadcast({ type: 'ANSWER_COUNT', answered: answeredNow, total: totalConnected });
+
   await pool.query(
     `INSERT INTO quiz_events (session_id, event) VALUES ($1,$2)`,
     [session.sessionId, JSON.stringify({ type: 'PLAYER_ANSWER', playerId: client.playerId, questionId: q.id, value, timeUsedMs })]
@@ -301,9 +305,6 @@ async function finishAnswering(): Promise<void> {
     rankings,
   });
 
-  s.phaseTimer = setTimeout(async () => {
-    if (session?.phase === 'question_results') await goToWaiting();
-  }, 3500);
 }
 
 async function goToWaiting(): Promise<void> {

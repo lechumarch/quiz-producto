@@ -56,6 +56,7 @@ function handle(msg){
   else if(msg.type==='PHASE_QUESTION_RESULTS')renderResults(msg);
   else if(msg.type==='PHASE_WAITING')renderWaiting(msg.players);
   else if(msg.type==='PHASE_FINISHED')renderFinished(msg);
+  else if(msg.type==='ANSWER_COUNT')updateAnswerCount(msg);
 }
 function setPhase(p){document.getElementById('phaseBadge').textContent=p;}
 function main(html){clearInterval(timerInterval);document.getElementById('main').innerHTML=html;}
@@ -82,9 +83,19 @@ function anim(t){
 const TYPE_LABELS={multiple_choice:'Opción múltiple',true_false:'Verdadero / Falso',rank:'Ordenar opciones',estimation:'Estimación numérica',majority:'La mayoría manda'};
 function renderReading(msg){
   setPhase(`Pregunta ${msg.questionIndex+1}/${msg.total} · Leyendo`);
-  let left=msg.duration;
-  main((msg.question.imageUrl?`<img src="${msg.question.imageUrl}" style="max-height:200px;border-radius:12px;margin-bottom:20px">`:'')+`<div class="type-tag">${TYPE_LABELS[msg.question.type]}</div><div class="big-prompt">${msg.question.prompt}</div><div class="timer-ring" id="tNum">${left}</div>`);
-  timerInterval=setInterval(()=>{left--;const el=document.getElementById('tNum');if(el)el.textContent=left;if(left<=0)clearInterval(timerInterval);},1000);
+  let cdNum=3;
+  main(`<div style="text-align:center"><div class="timer-ring" id="cdNum" style="font-size:120px;color:#c4adff">3</div><div style="color:#c4adff;font-size:20px;margin-top:8px">Pregunta siguiente...</div></div>`);
+  const cdInterval=setInterval(()=>{
+    cdNum--;
+    if(cdNum<=0){
+      clearInterval(cdInterval);
+      let left=Math.max(msg.duration-3,2);
+      main((msg.question.imageUrl?`<img src="${msg.question.imageUrl}" style="max-height:200px;border-radius:12px;margin-bottom:20px">`:'')+`<div class="type-tag">${TYPE_LABELS[msg.question.type]}</div><div class="big-prompt">${msg.question.prompt}</div><div class="timer-ring" id="tNum">${left}</div>`);
+      timerInterval=setInterval(()=>{left--;const el=document.getElementById('tNum');if(el)el.textContent=left;if(left<=0)clearInterval(timerInterval);},1000);
+    } else {
+      const el=document.getElementById('cdNum');if(el)el.textContent=cdNum;
+    }
+  },1000);
 }
 function renderAnswering(msg){
   setPhase(`Pregunta ${msg.questionIndex+1}/${msg.total} · Respondiendo`);
@@ -94,9 +105,10 @@ function renderAnswering(msg){
   if(q.type==='multiple_choice'||q.type==='majority'||q.type==='rank')optsHTML=`<div class="opts-grid">`+(q.options||[]).map(o=>`<div class="opt-box">${o}</div>`).join('')+`</div>`;
   else if(q.type==='true_false')optsHTML=`<div class="opts-grid"><div class="opt-box">✅ Verdadero</div><div class="opt-box">❌ Falso</div></div>`;
   else if(q.type==='estimation')optsHTML=`<div style="color:#c4adff;font-size:18px">Cada jugador escribe su número</div>`;
-  main((q.imageUrl?`<img src="${q.imageUrl}" style="max-height:160px;border-radius:12px;margin-bottom:20px">`:'')+`<div class="big-prompt" style="font-size:clamp(18px,2.5vw,30px)">${q.prompt}</div>`+optsHTML+`<div class="timer-ring" id="tNum">${left}</div>`);
+  main((q.imageUrl?`<img src="${q.imageUrl}" style="max-height:160px;border-radius:12px;margin-bottom:20px">`:'')+`<div class="big-prompt" style="font-size:clamp(18px,2.5vw,30px)">${q.prompt}</div>`+optsHTML+`<div class="timer-ring" id="tNum">${left}</div><div id="answerCount" style="color:#c4adff;font-size:18px;margin-top:12px">0 respondieron</div>`);
   timerInterval=setInterval(()=>{left--;const el=document.getElementById('tNum');if(el){el.textContent=left;if(left<=5)el.style.color='#ff6b6b';}if(left<=0)clearInterval(timerInterval);},1000);
 }
+function updateAnswerCount(msg){const el=document.getElementById('answerCount');if(el)el.textContent=`${msg.answered}/${msg.total} respondieron`;}
 function animateCount(el,from,to,duration){
   const start=performance.now();
   function step(now){const p=Math.min((now-start)/duration,1);el.textContent=Math.round(from+(to-from)*p)+' pts';if(p<1)requestAnimationFrame(step);}
