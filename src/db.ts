@@ -14,7 +14,7 @@ const config: PoolConfig = {
   database: DB_NAME,
   user: DB_USER,
   password: getSecret('DB_PASSWORD') ?? getSecret('DB_PASS') ?? '',
-  ssl: { rejectUnauthorized: false },
+  ssl: getSecret('DB_SSL') === 'true' ? { rejectUnauthorized: false } : false,
 };
 
 export const pool = new Pool(config);
