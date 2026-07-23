@@ -14,22 +14,23 @@ Originalmente corría en **Ownia** (infra interna de Despegar), pero requería V
 - **Web:** Express
 - **Tiempo real:** WebSockets nativos (`ws`) — importante, no es polling
 - **DB:** PostgreSQL
-- **Contenedor:** tiene `Dockerfile` en la raíz, listo para usar
+- **Contenedor:** `Dockerfile` + `docker-compose.yml` en la raíz, listos para usar
 
 ---
 
-## Lo que ya está resuelto en el servidor
+## Requisitos del servidor
 
-Según el relevamiento previo del servidor:
+- Docker + Docker Compose
+- Tailscale con **Funnel** habilitado en el tailnet
+- Funnel soporta WebSockets nativamente (proxy TCP con TLS termination)
 
-- ✅ Docker + Docker Compose instalados (quedaron de OpenMemory)
-- ✅ Tailscale con **Funnel** activo exponiendo el servidor públicamente en `homeserver.tail65f563.ts.net`
-- ✅ Funnel soporta WebSockets nativamente (proxy TCP con TLS termination)
-- ✅ El bug conocido de Tailscale Funnel (feb 2026) que elimina query params en upgrades WS **no afecta esta app** — los WS no usan query params, el join va por mensaje después de conectar
+**Nota sobre el prefijo de path y los WebSockets:** cada pantalla arma la URL del WebSocket a partir del path por el que se entró. Si entrás por `/quiz-producto/join`, el browser disca `wss://<host>/quiz-producto/ws`. El server acepta el upgrade de WS en **cualquier** path, así que funciona detrás de un proxy que agrega un prefijo (como Funnel) sin necesidad de reescribir el path del upgrade. La app además strippea el prefijo `/quiz-producto` de las requests HTTP por su cuenta.
+
+> El bug conocido de Tailscale Funnel que elimina query params en upgrades WS **no afecta** a esta app: los WS no usan query params, el join va por mensaje después de conectar.
 
 ---
 
-## Lo que hay que hacer
+## Deploy
 
 ### 1. Clonar el repo
 
@@ -40,58 +41,31 @@ cd quiz-producto
 
 ### 2. Crear el archivo `.env`
 
-Crear un `.env` en la raíz con estos valores (cambiar los passwords):
+Crear un `.env` en la raíz (cambiá los passwords). El `docker-compose.yml` lo lee tanto para la app como para inicializar Postgres:
 
 ```env
+DB_HOST=db
+DB_PORT=5432
+DB_NAME=quiz
+DB_USER=quiz
 DB_PASSWORD=un_password_seguro
-BASIC_AUTH_USER=admin
-BASIC_AUTH_PASS=otro_password_seguro
+DB_SSL=false
+ADMIN_USER=admin
+ADMIN_PASS=otro_password_seguro
+# Opcional pero recomendado si exponés en un puerto de Funnel que no sea 443:
+# fuerza la URL pública que se usa en el QR y en el link de join.
+# PUBLIC_BASE_URL=https://<tu-server>.<tailnet>.ts.net:<puerto-funnel>
 ```
 
-### 3. Crear `docker-compose.yml`
+- **`DB_SSL=false`** — el Postgres local del compose no usa SSL. (En Ownia iba `true`.)
+- **`ADMIN_USER` / `ADMIN_PASS`** — credenciales del panel de host/admin. También se aceptan `BASIC_AUTH_USER` / `BASIC_AUTH_PASS` como alias.
+- **`PUBLIC_BASE_URL`** — si está seteada, el QR y el link de join usan exactamente esa base. **Necesario si el Funnel está en un puerto no-443** (ej. 8443 o 10000): sin esto, el QR se arma con `x-forwarded-host` y omite el puerto, apuntando a la URL equivocada.
 
-El repo no incluye el compose (tiene secrets). Crearlo en la raíz:
+> El `.env` está en `.gitignore` — no se commitea. Nunca lo subas al repo.
 
-```yaml
-services:
-  app:
-    build: .
-    restart: unless-stopped
-    environment:
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_NAME=quiz
-      - DB_USER=quiz
-      - DB_PASSWORD=${DB_PASSWORD}
-      - BASIC_AUTH_USER=${BASIC_AUTH_USER}
-      - BASIC_AUTH_PASS=${BASIC_AUTH_PASS}
-      - PORT=3000
-    ports:
-      - "3000:3000"
-    depends_on:
-      db:
-        condition: service_healthy
+### 3. Levantar la app
 
-  db:
-    image: postgres:15-alpine
-    restart: unless-stopped
-    environment:
-      - POSTGRES_DB=quiz
-      - POSTGRES_USER=quiz
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U quiz"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  pgdata:
-```
-
-### 4. Levantar la app
+El repo ya incluye `docker-compose.yml` (app + `postgres:15-alpine`). Por seguridad, la app queda bindeada a `127.0.0.1:3020` (no expuesta a toda la LAN) y la DB es solo interna al compose.
 
 ```bash
 docker compose up -d --build
@@ -103,58 +77,53 @@ Verificar que levantó:
 docker compose logs -f app
 ```
 
-Debería terminar con algo como `Quiz app on :3000` y `DB migrations done`.
+Debería terminar con `DB migrations done` y `Quiz app on :3000`.
 
-### 5. Exponer con Tailscale Funnel
+> Si el puerto local `3020` ya está ocupado en tu server, cambiá el mapping en `docker-compose.yml` (`127.0.0.1:<otro>:3000`) y usá ese puerto en el paso 4.
 
-Primero revisar la config actual del Funnel para no pisar nada:
+### 4. Exponer con Tailscale Funnel
+
+**Tailscale Funnel solo permite tres puertos: `443`, `8443` y `10000`.** Revisá cuál tenés libre para no pisar otro servicio:
 
 ```bash
 tailscale serve status
 ```
 
-Luego exponer el puerto 3000 de la app. Hay dos opciones limpias:
+Exponé el puerto local de la app (`127.0.0.1:3020`) en un puerto de Funnel libre:
 
-**Opción A — Path mount en 443** (misma URL base que Ownia, más limpio):
 ```bash
-tailscale serve --set-path /quiz-producto https+insecure://localhost:3000/quiz-producto
+tailscale funnel --bg --https=<puerto> http://127.0.0.1:3020
 ```
 
-**Opción B — Puerto dedicado 8443** (aislado, no toca config existente):
-```bash
-tailscale serve --https=8443 https+insecure://localhost:3000
-tailscale funnel 8443 on
-```
+donde `<puerto>` es `443`, `8443` o `10000`. Volvé a correr `tailscale serve status` y confirmá que las entradas que ya existían siguen intactas.
 
-Elegir según lo que muestre `tailscale serve status` — la Opción B es más segura si el snapshot ya usa el 443.
+Después, seteá `PUBLIC_BASE_URL` en el `.env` con `https://<tu-server>.<tailnet>.ts.net:<puerto>` y reconstruí para que el QR salga con el puerto correcto:
 
-Una vez configurado, activar el Funnel:
 ```bash
-tailscale funnel on   # si usaste opción A
-# o ya está implícito en la opción B
+docker compose up -d --build
 ```
 
 ---
 
 ## URLs finales
 
-Según la opción elegida:
+Reemplazá `<tu-server>.<tailnet>.ts.net` por tu MagicDNS name (`tailscale status`) y `<puerto>` por el de Funnel que elegiste:
 
 | | URL |
 |---|---|
-| Jugadores (celu) | `https://homeserver.tail65f563.ts.net/quiz-producto/join` |
-| Host (quien conduce) | `https://homeserver.tail65f563.ts.net/quiz-producto/` |
-| Admin (crear quizzes) | `https://homeserver.tail65f563.ts.net/quiz-producto/admin/` |
+| Jugadores (celu) | `https://<tu-server>.<tailnet>.ts.net:<puerto>/quiz-producto/join` |
+| Host (quien conduce) | `https://<tu-server>.<tailnet>.ts.net:<puerto>/quiz-producto/host` |
 
-El panel admin pide usuario y contraseña (los `BASIC_AUTH_*` del `.env`).
+El panel de host pide usuario y contraseña (los `ADMIN_USER` / `ADMIN_PASS` del `.env`).
 
 ---
 
 ## Verificar que todo funciona
 
-1. Desde el servidor: `curl http://localhost:3000/quiz-producto/` → debe responder (401 si basic auth activo, es correcto)
-2. Desde el celu por la URL pública: abrir `/quiz-producto/join` → debe cargar la pantalla de selección de jugador
-3. Test de WebSocket: entrar a `/quiz-producto/join`, seleccionar un jugador → debe conectar y mostrar "Esperando al admin"
+1. Desde el servidor: `curl http://127.0.0.1:3020/quiz-producto/join` → debe responder `200`.
+2. `curl http://127.0.0.1:3020/quiz-producto/host` → debe responder `401` (basic auth activo, es correcto).
+3. Desde el celu por la URL pública: abrir `/quiz-producto/join` → debe cargar la pantalla de selección de jugador.
+4. Test de WebSocket: entrar a `/quiz-producto/join`, seleccionar un jugador → debe conectar y mostrar "Esperando al admin".
 
 ---
 
@@ -162,13 +131,14 @@ El panel admin pide usuario y contraseña (los `BASIC_AUTH_*` del `.env`).
 
 Funnel expone el servidor públicamente. Consideraciones:
 
-- El panel admin está protegido por basic auth ✅
+- El panel de host/admin está protegido por basic auth ✅
 - La pantalla de join es abierta (necesario para que los jugadores entren) ✅
+- ⚠️ **`POST /api/players/avatar` es público y sin auth** — cualquiera con el link puede pegarle mientras el Funnel esté prendido.
 - **Recomendado:** apagar el Funnel cuando no hay quiz activo y prenderlo solo el día del evento:
 
 ```bash
-tailscale funnel 8443 off   # apagar
-tailscale funnel 8443 on    # prender el día del quiz
+tailscale funnel --https=<puerto> off   # apagar
+tailscale funnel --bg --https=<puerto> http://127.0.0.1:3020   # prender el día del quiz
 ```
 
 ---
@@ -182,7 +152,7 @@ docker compose ps
 # Ver logs en vivo
 docker compose logs -f app
 
-# Reiniciar la app (si hubo un update del repo)
+# Actualizar tras un cambio del repo
 git pull
 docker compose up -d --build
 
@@ -198,11 +168,12 @@ docker compose down
 src/
   index.ts          # entry point, Express + WebSocket server
   db.ts             # conexión PostgreSQL + schema + migraciones
+  secrets.ts        # lee secrets de APP_SECRETS (Ownia) o de env vars
   game/
     engine.ts       # lógica del juego, manejo de sesiones y WS
     scoring.ts      # cálculo de puntajes
   routes/
-    admin.ts        # endpoints del panel admin (protegidos con basic auth)
+    admin.ts        # endpoints del panel de host (protegidos con basic auth)
     player.ts       # endpoints públicos (jugadores)
   middleware/
     auth.ts         # basic auth
@@ -212,6 +183,7 @@ public/
   admin/            # panel de administración
   host/             # pantalla del host que conduce el quiz
 Dockerfile
+docker-compose.yml
 ```
 
 ---

@@ -10,7 +10,7 @@ import { registerClient, handlePlayerJoin, handlePlayerAnswer, initEventPolling 
 
 const app = express();
 const server = createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ server });
 
 // Strip /quiz-producto prefix when present (Tailscale path-mount or Ownia proxy)
 app.use((req, _res, next) => {

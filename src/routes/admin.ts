@@ -3,11 +3,14 @@ import QRCode from 'qrcode';
 import { basicAuth } from '../middleware/auth';
 import { pool } from '../db';
 import { startSession, advancePhase, getCurrentSession } from '../game/engine';
+import { getSecret } from '../secrets';
 
 const router = Router();
 router.use(basicAuth);
 
 function buildJoinUrl(req: any): string {
+  const base = getSecret('PUBLIC_BASE_URL');
+  if (base) return `${base.replace(/\/$/, '')}/quiz-producto/join`;
   const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
   const host = (req.headers['x-forwarded-host'] as string) || req.get('host') || 'localhost';
   return `${proto}://${host}/quiz-producto/join`;
