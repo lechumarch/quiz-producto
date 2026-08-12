@@ -17,13 +17,29 @@ function buildJoinUrl(req: any): string {
 }
 
 router.get('/api/quizzes', async (_req, res) => {
-  const r = await pool.query('SELECT * FROM quizzes ORDER BY created_at DESC');
+  const r = await pool.query(
+    `SELECT q.*, t.name AS tournament_name
+     FROM quizzes q LEFT JOIN tournaments t ON t.id = q.tournament_id
+     ORDER BY q.created_at DESC`
+  );
   res.json(r.rows);
 });
 
 router.post('/api/quizzes', async (req, res) => {
-  const { title, month_year } = req.body;
-  const r = await pool.query(`INSERT INTO quizzes (title,month_year) VALUES ($1,$2) RETURNING *`, [title, month_year]);
+  const { title, month_year, tournament_id } = req.body;
+  const r = await pool.query(
+    `INSERT INTO quizzes (title,month_year,tournament_id) VALUES ($1,$2,$3) RETURNING *`,
+    [title, month_year, tournament_id ?? null]
+  );
+  res.json(r.rows[0]);
+});
+
+router.put('/api/quizzes/:id/tournament', async (req, res) => {
+  const { tournament_id } = req.body;
+  const r = await pool.query(
+    'UPDATE quizzes SET tournament_id=$1 WHERE id=$2 RETURNING *',
+    [tournament_id ?? null, req.params.id]
+  );
   res.json(r.rows[0]);
 });
 
@@ -107,6 +123,62 @@ router.put('/api/players/:id', async (req, res) => {
   const { name } = req.body;
   const r = await pool.query('UPDATE players SET name=$1 WHERE id=$2 RETURNING *', [name, req.params.id]);
   res.json(r.rows[0]);
+});
+
+// Reset del roster: borra todos los jugadores y su participación (answers/session_players).
+// No toca definiciones de quizzes, preguntas ni torneos.
+router.delete('/api/roster', async (_req, res) => {
+  await pool.query('DELETE FROM answers');
+  await pool.query('DELETE FROM session_players');
+  await pool.query('DELETE FROM players');
+  res.json({ ok: true });
+});
+
+router.get('/api/tournaments', async (_req, res) => {
+  const r = await pool.query(
+    `SELECT t.*,
+            (SELECT COUNT(*) FROM quizzes q WHERE q.tournament_id = t.id)::int AS quiz_count
+     FROM tournaments t
+     ORDER BY (t.status = 'active') DESC, t.created_at DESC`
+  );
+  res.json(r.rows);
+});
+
+router.post('/api/tournaments', async (req, res) => {
+  const { name, starts_at, ends_at } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Falta el nombre del torneo' });
+  const r = await pool.query(
+    `INSERT INTO tournaments (name, starts_at, ends_at, status) VALUES ($1,$2,$3,'active') RETURNING *`,
+    [name.trim(), starts_at || null, ends_at || null]
+  );
+  res.json(r.rows[0]);
+});
+
+router.post('/api/tournaments/:id/finish', async (req, res) => {
+  await pool.query(`UPDATE tournaments SET status='finished' WHERE id=$1`, [req.params.id]);
+  res.json({ ok: true });
+});
+
+router.delete('/api/tournaments/:id', async (req, res) => {
+  await pool.query('DELETE FROM tournaments WHERE id=$1', [req.params.id]);
+  res.json({ ok: true });
+});
+
+router.get('/api/tournaments/:id/rankings', async (req, res) => {
+  const r = await pool.query(
+    `SELECT p.name, p.emoji, p.avatar_url,
+            SUM(a.points)::int AS total_points,
+            COUNT(DISTINCT a.session_id)::int AS sessions_played
+     FROM answers a
+     JOIN players p ON p.id = a.player_id
+     JOIN sessions s ON s.id = a.session_id
+     JOIN quizzes q ON q.id = s.quiz_id
+     WHERE q.tournament_id = $1
+     GROUP BY p.id, p.name, p.emoji, p.avatar_url
+     ORDER BY total_points DESC`,
+    [req.params.id]
+  );
+  res.json(r.rows.map((row, i) => ({ ...row, position: i + 1 })));
 });
 
 router.get('/api/rankings/annual', async (_req, res) => {

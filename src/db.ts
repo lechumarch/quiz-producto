@@ -85,11 +85,20 @@ CREATE TABLE IF NOT EXISTS session_players (
   emoji TEXT NOT NULL,
   PRIMARY KEY (session_id, player_id)
 );
+CREATE TABLE IF NOT EXISTS tournaments (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  starts_at DATE,
+  ends_at DATE,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS phase TEXT DEFAULT 'lobby';
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS question_index INTEGER DEFAULT 0;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS phase_started_at TIMESTAMPTZ DEFAULT NOW();
 ALTER TABLE players ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE session_players ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS tournament_id INTEGER REFERENCES tournaments(id) ON DELETE SET NULL;
 `;
 
 export async function migrate(): Promise<void> {

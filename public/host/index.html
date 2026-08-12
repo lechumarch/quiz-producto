@@ -34,6 +34,7 @@ input:focus,select:focus{border-color:#6b2bd9}
 <div class="hdr"><div class="logo">✈ Quiz Producto</div><div class="badge">Host</div></div>
 <div class="tabs-bar">
   <button class="tab active" onclick="showTab('quizzes',this)">Quizzes</button>
+  <button class="tab" onclick="showTab('torneos',this)">Torneos</button>
   <button class="tab" onclick="showTab('ranking',this)">Ranking Anual</button>
   <button class="tab" onclick="showTab('roster',this)">Roster</button>
 </div>
@@ -48,29 +49,40 @@ async function showTab(tab,el){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   if(el)el.classList.add('active');
   if(tab==='quizzes')await renderQuizzes();
+  else if(tab==='torneos')await renderTournaments();
   else if(tab==='ranking')await renderRanking();
   else if(tab==='roster')await renderRoster();
 }
 async function renderQuizzes(){
-  const quizzes=await api('/api/quizzes');
+  const [quizzes,tournaments]=await Promise.all([api('/api/quizzes'),api('/api/tournaments')]);
+  const active=tournaments.filter(t=>t.status==='active');
+  const finished=tournaments.filter(t=>t.status!=='active');
+  const tOpts=`<option value="" disabled selected>Elegí un torneo…</option>`
+    +(active.length?`<optgroup label="En curso">`+active.map(t=>`<option value="${t.id}">🏆 ${esc(t.name)}</option>`).join('')+`</optgroup>`:'')
+    +(finished.length?`<optgroup label="Cerrados">`+finished.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')+`</optgroup>`:'')
+    +`<option value="none">Sin torneo</option>`;
   const tc=document.getElementById('tabContent');
-  tc.innerHTML=`<div class="new-form"><div class="section-title">Nuevo quiz</div><input id="newTitle" placeholder="Título (ej: Julio 2026)"><input id="newMonth" placeholder="Mes/año (ej: Julio 2026)"><button class="btn-primary" onclick="createQuiz()">Crear quiz</button></div><div class="section-title">Mis quizzes</div><div id="quizList"></div>`;
+  tc.innerHTML=`<div class="new-form"><div class="section-title">Nuevo quiz</div><input id="newTitle" placeholder="Título (ej: Agosto 2026)"><input id="newMonth" placeholder="Mes/año (ej: Agosto 2026)"><label style="display:block;font-size:11px;font-weight:700;color:#6b2bd9;margin:0 0 4px 2px">Torneo</label><select id="newTournament">${tOpts}</select><button class="btn-primary" onclick="createQuiz()">Crear quiz</button></div><div class="section-title">Mis quizzes</div><div id="quizList"></div>`;
   const list=document.getElementById('quizList');
   if(!quizzes.length){list.innerHTML='<div style="color:#8a7aaa;font-size:13px">No hay quizzes todavía.</div>';return;}
   list.innerHTML=quizzes.map(q=>{
     const sc=q.status==='draft'?'#8a7aaa':q.status==='active'?'#e8192c':'#16a34a';
+    const tName=q.tournament_name?`🏆 ${q.tournament_name}`:'Sin torneo';
     const actions=q.status==='draft'
       ?`<button class="btn btn-edit" onclick="editQuiz(${q.id},'${esc(q.title)}','${esc(q.month_year)}')">✏️ Editar</button><button class="btn btn-start" onclick="startSession(${q.id})">Jugar ▶</button>`
       :q.status==='active'
       ?`<button class="btn btn-retomar" onclick="retomar(${q.id})">Retomar →</button>`
       :`<span style="font-size:11px;color:#16a34a;font-weight:700">✓ Finalizado</span>`;
-    return`<div class="quiz-card"><div class="quiz-info"><div class="title">${q.title}</div><div class="meta">${q.month_year} · <span style="color:${sc};font-weight:700">${q.status}</span></div></div><div class="quiz-actions">${actions}<button class="btn btn-del" onclick="delQuiz(${q.id})">✕</button></div></div>`;
+    return`<div class="quiz-card"><div class="quiz-info"><div class="title">${q.title}</div><div class="meta">${tName} · ${q.month_year} · <span style="color:${sc};font-weight:700">${q.status}</span></div></div><div class="quiz-actions">${actions}<button class="btn btn-del" onclick="delQuiz(${q.id})">✕</button></div></div>`;
   }).join('');
 }
 async function createQuiz(){
   const title=document.getElementById('newTitle').value.trim(),month_year=document.getElementById('newMonth').value.trim();
-  if(!title||!month_year)return;
-  await api('/api/quizzes','POST',{title,month_year});await renderQuizzes();
+  const sel=document.getElementById('newTournament'),tv=sel.value;
+  if(!title||!month_year){alert('Completá título y mes/año');return;}
+  if(!tv){alert('Elegí un torneo (o "Sin torneo")');sel.focus();return;}
+  const tournament_id=tv==='none'?null:parseInt(tv);
+  await api('/api/quizzes','POST',{title,month_year,tournament_id});await renderQuizzes();
 }
 function editQuiz(id,title){
   sessionStorage.setItem('editQuizId',id);sessionStorage.setItem('editQuizTitle',title);
@@ -98,6 +110,49 @@ async function retomar(quizId){
   }
   if(s.phase==='lobby'){window.location.href=BASE+'/host/lobby';}
   else{window.location.href=BASE+'/host/game';}
+}
+function fmtDate(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('es-AR',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;}}
+async function renderTournaments(){
+  const tournaments=await api('/api/tournaments');
+  const form=`<div class="new-form"><div class="section-title">Nuevo torneo</div><input id="tName" placeholder="Nombre (ej: Producto 2026)"><label style="display:block;font-size:11px;font-weight:700;color:#6b2bd9;margin:0 0 4px 2px">Arranca</label><input id="tStart" type="date"><label style="display:block;font-size:11px;font-weight:700;color:#6b2bd9;margin:0 0 4px 2px">Termina</label><input id="tEnd" type="date"><button class="btn-primary" onclick="createTournament()">Crear y activar torneo</button></div>`;
+  let listHTML='<div class="section-title">Torneos</div>';
+  if(!tournaments.length){listHTML+='<div style="color:#8a7aaa;font-size:13px">No hay torneos todavía. Creá el primero arriba.</div>';}
+  else{
+    listHTML+=tournaments.map(t=>{
+      const isActive=t.status==='active';
+      const sc=isActive?'#e8192c':'#16a34a';
+      const label=isActive?'en curso':'cerrado';
+      const finishBtn=isActive?`<button class="btn btn-edit" onclick="finishTournament(${t.id})">Finalizar</button>`:'';
+      return`<div class="quiz-card"><div class="quiz-info"><div class="title">🏆 ${esc2(t.name)}</div><div class="meta">${fmtDate(t.starts_at)} → ${fmtDate(t.ends_at)} · ${t.quiz_count} quiz${t.quiz_count!==1?'zes':''} · <span style="color:${sc};font-weight:700">${label}</span></div></div><div class="quiz-actions"><button class="btn btn-retomar" onclick="showStandings(${t.id},'${esc(t.name)}')">Ver tabla</button>${finishBtn}<button class="btn btn-del" onclick="delTournament(${t.id})">✕</button></div></div>`;
+    }).join('');
+  }
+  document.getElementById('tabContent').innerHTML=form+listHTML+'<div id="standings"></div>';
+  const firstActive=tournaments.find(t=>t.status==='active')||tournaments[0];
+  if(firstActive)showStandings(firstActive.id,firstActive.name);
+}
+function esc2(s){return(s||'').replace(/</g,'&lt;');}
+async function createTournament(){
+  const name=document.getElementById('tName').value.trim();
+  const starts_at=document.getElementById('tStart').value||null;
+  const ends_at=document.getElementById('tEnd').value||null;
+  if(!name){alert('Poné un nombre al torneo');return;}
+  const r=await api('/api/tournaments','POST',{name,starts_at,ends_at});
+  if(r.error){alert(r.error);return;}
+  await renderTournaments();
+}
+async function finishTournament(id){
+  if(!confirm('¿Finalizar este torneo? Los quizzes nuevos ya no se le van a poder asignar por defecto.'))return;
+  await api('/api/tournaments/'+id+'/finish','POST');await renderTournaments();
+}
+async function delTournament(id){
+  if(!confirm('¿Borrar este torneo? Los quizzes que tenía quedan "sin torneo" (no se borran).'))return;
+  await api('/api/tournaments/'+id,'DELETE');await renderTournaments();
+}
+async function showStandings(id,name){
+  const data=await api('/api/tournaments/'+id+'/rankings');
+  const medals=['🥇','🥈','🥉'];
+  const rows=data.length?data.map((r,i)=>`<div class="rank-row"><div style="width:28px;font-size:16px">${medals[i]||i+1}</div><span style="font-size:20px">${r.emoji}</span><div style="flex:1;font-size:13px;font-weight:700;color:#1a0a5e">${r.name}</div><div style="font-size:13px;font-weight:800;color:#6b2bd9">${r.total_points} pts</div></div>`).join(''):'<div style="color:#8a7aaa;font-size:13px">Todavía no se jugó ningún quiz de este torneo.</div>';
+  document.getElementById('standings').innerHTML=`<div style="background:#fff;border-radius:14px;padding:16px;border:1px solid #e0d9f7;margin-top:14px"><div class="section-title">Tabla · ${esc2(name)}</div>${rows}</div>`;
 }
 async function renderRanking(){
   const data=await api('/api/rankings/annual');
