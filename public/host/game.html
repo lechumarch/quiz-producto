@@ -114,6 +114,33 @@ function animateCount(el,from,to,duration){
   function step(now){const p=Math.min((now-start)/duration,1);el.textContent=Math.round(from+(to-from)*p)+' pts';if(p<1)requestAnimationFrame(step);}
   requestAnimationFrame(step);
 }
+function buildEstimationChart(values,realValue){
+  const vals=(values||[]).filter(v=>!isNaN(v));
+  const real=realValue||0;
+  if(!vals.length)return `<div class="big-prompt" style="font-size:22px;margin-bottom:16px">Valor real: <span style="color:#e8192c">${real.toLocaleString()}</span></div><div style="color:#c4adff;font-size:16px;margin-bottom:20px">Sin respuestas</div>`;
+  const all=vals.concat([real]);
+  let lo=Math.min.apply(null,all),hi=Math.max.apply(null,all);
+  if(lo===hi){lo=lo-1;hi=hi+1;}
+  const BUCKETS=Math.min(12,Math.max(5,vals.length));
+  const span=(hi-lo)/BUCKETS;
+  const counts=new Array(BUCKETS).fill(0);
+  vals.forEach(v=>{let b=Math.floor((v-lo)/span);if(b>=BUCKETS)b=BUCKETS-1;if(b<0)b=0;counts[b]++;});
+  let realBucket=Math.floor((real-lo)/span);if(realBucket>=BUCKETS)realBucket=BUCKETS-1;if(realBucket<0)realBucket=0;
+  const maxC=Math.max.apply(null,counts.concat([1]));
+  const bars=counts.map((c,i)=>{
+    const h=Math.round(c/maxC*160);
+    const isReal=i===realBucket;
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px">`+
+      `<div style="font-size:13px;font-weight:900;color:#fff;height:16px">${c||''}</div>`+
+      `<div style="width:100%;max-width:46px;height:${Math.max(h,c?6:0)}px;border-radius:6px 6px 0 0;background:${isReal?'#e8192c':'#6b2bd9'}"></div>`+
+    `</div>`;
+  }).join('');
+  return `<div style="width:100%;max-width:640px;margin-bottom:12px">`+
+      `<div style="display:flex;align-items:flex-end;gap:6px;height:190px;padding:0 4px">${bars}</div>`+
+      `<div style="display:flex;justify-content:space-between;color:#8a7aaa;font-size:12px;margin-top:6px;padding:0 4px"><span>${lo.toLocaleString()}</span><span>${hi.toLocaleString()}</span></div>`+
+    `</div>`+
+    `<div class="big-prompt" style="font-size:22px;margin-bottom:16px">Valor real: <span style="color:#e8192c">${real.toLocaleString()}</span> · ${vals.length} respuesta${vals.length!==1?'s':''}</div>`;
+}
 function renderResults(msg){
   setPhase('Resultados');
   const d=msg.distribution,correct=msg.correctAnswer;
@@ -121,8 +148,7 @@ function renderResults(msg){
   const prevMap={};prevRankings.forEach((r,i)=>{prevMap[r.name]={pos:i+1,pts:r.total_points};});
   let distHTML='';
   if(msg.questionType==='estimation'){
-    const vals=(d.values||[]).slice().sort((a,b)=>a-b);
-    distHTML=`<div class="big-prompt" style="font-size:24px;margin-bottom:16px">Valor real: <span style="color:#e8192c">${(d.realValue||0).toLocaleString()}</span></div><div style="color:#c4adff;font-size:14px;text-align:center;margin-bottom:20px">${vals.length} respuestas: ${vals.map(v=>v.toLocaleString()).join(' · ')}</div>`;
+    distHTML=buildEstimationChart(d.values,d.realValue);
   } else if(d.counts&&d.options){
     const total=Object.values(d.counts).reduce((a,b)=>a+b,0)||1;
     distHTML=`<div style="width:100%;max-width:700px;margin-bottom:20px">`+d.options.map(o=>{const cnt=d.counts[o]||0,pct=Math.round(cnt/total*100),isC=o===correct;return`<div class="bar-row"><div class="bar-label">${o}${isC?' ✓':''}</div><div class="bar-bg"><div class="bar-fill${isC?' correct':''}" style="width:${Math.max(pct,4)}%">${cnt}</div></div></div>`;}).join('')+`</div>`;
@@ -152,7 +178,10 @@ function renderWaiting(players){
 function renderFinished(msg){
   setPhase('Final');
   const c=msg.champion;
-  main(`<div style="text-align:center;margin-bottom:32px"><div style="font-size:72px">🏆</div><div style="font-size:clamp(24px,4vw,48px);font-weight:900;color:#fff;margin:8px 0">¡Campeón del mes!</div><div style="font-size:56px">${c?.emoji||'🎉'}</div><div style="font-size:clamp(20px,3vw,36px);font-weight:900;color:#fff">${c?.name||''}</div><div style="font-size:18px;color:#c4adff;margin-top:6px">${c?.total_points||0} puntos</div></div>`);
+  const rankings=msg.rankings||[];
+  const medals=['🥇','🥈','🥉'];
+  const rankHTML=rankings.length?`<div class="rank-table" style="margin-top:8px">`+rankings.slice(0,10).map((r,i)=>`<div class="rank-row" style="animation:slideIn .3s ease ${i*0.06}s both"><div class="rpos">${medals[i]||i+1}</div><span style="font-size:24px">${r.emoji}</span><div class="rname">${r.name}</div><div class="rpts">${r.total_points} pts</div></div>`).join('')+`</div>`:'';
+  main(`<div style="text-align:center;margin-bottom:24px"><div style="font-size:72px">🏆</div><div style="font-size:clamp(24px,4vw,48px);font-weight:900;color:#fff;margin:8px 0">¡Campeón del mes!</div><div style="font-size:56px">${c?.emoji||'🎉'}</div><div style="font-size:clamp(20px,3vw,36px);font-weight:900;color:#fff">${c?.name||''}</div><div style="font-size:18px;color:#c4adff;margin-top:6px">${c?.total_points||0} puntos</div></div>`+rankHTML);
 }
 document.addEventListener('keydown',async e=>{
   if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();await fetch(BASE+'/host/api/sessions/next',{method:'POST',headers:{'Content-Type':'application/json'}});}
