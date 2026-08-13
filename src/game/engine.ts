@@ -46,7 +46,18 @@ async function pollEvents(): Promise<void> {
 function handleEvent(msg: any): void {
   if (msg.type === 'PHASE_QUESTION_RESULTS') {
     for (const [ws, client] of clients) {
-      if (!client.playerId) continue;
+      if (!client.playerId) {
+        // Host / proyector: no es jugador, pero necesita la distribución y el
+        // ranking para mostrar la pantalla de resultados (sin datos personales).
+        send(ws, {
+          type: 'PHASE_QUESTION_RESULTS',
+          distribution: msg.distribution,
+          questionType: msg.questionType,
+          correctAnswer: msg.correctAnswer,
+          rankings: msg.rankings,
+        });
+        continue;
+      }
       const pa = (msg.playerAnswers || {})[String(client.playerId)];
       send(ws, {
         type: 'PHASE_QUESTION_RESULTS',
