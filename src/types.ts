@@ -29,4 +29,5 @@ export interface ActiveSession {
   phaseStartTime: number;
   phaseTimer: ReturnType<typeof setTimeout> | null;
   answers: Record<number, Record<number, PlayerAnswer>>;
+  playerInfo: Map<number, { name: string; emoji: string; avatar_url: string | null }>;
 }

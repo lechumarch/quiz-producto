@@ -108,7 +108,23 @@ async function tryRestoreSession(): Promise<void> {
       phaseStartTime: Date.now(),
       phaseTimer: null,
       answers: {},
+      playerInfo: new Map(),
     };
+    // Rehidratar el estado en memoria desde la DB para que el ranking en memoria
+    // siga siendo correcto tras un reinicio del servidor a mitad de sesión.
+    const aRes = await pool.query(
+      'SELECT question_id, player_id, value, time_used_ms, points FROM answers WHERE session_id=$1',
+      [row.id]
+    );
+    for (const a of aRes.rows) {
+      if (!session.answers[a.question_id]) session.answers[a.question_id] = {};
+      session.answers[a.question_id][a.player_id] = { value: a.value, answeredAt: a.time_used_ms, points: a.points };
+    }
+    const pRes = await pool.query(
+      'SELECT player_id, name, emoji, avatar_url FROM session_players WHERE session_id=$1',
+      [row.id]
+    );
+    for (const p of pRes.rows) session.playerInfo.set(p.player_id, { name: p.name, emoji: p.emoji, avatar_url: p.avatar_url });
     console.log(`Restored session ${session.sessionId} phase=${session.phase}`);
   } catch (e) {
     console.error('tryRestoreSession error', e);
@@ -169,6 +185,7 @@ export async function startSession(quizId: number): Promise<ActiveSession> {
     phaseStartTime: Date.now(),
     phaseTimer: null,
     answers: {},
+    playerInfo: new Map(),
   };
   await broadcastLobby();
   return session;
@@ -192,6 +209,7 @@ export async function handlePlayerJoin(ws: WebSocket, name: string, emoji: strin
   const storedEmoji: string = idRes.rows[0].emoji;
   const storedAvatar: string | null = idRes.rows[0].avatar_url;
   clients.set(ws, { playerId, name, emoji: storedEmoji, avatarUrl: storedAvatar });
+  session?.playerInfo.set(playerId, { name, emoji: storedEmoji, avatar_url: storedAvatar });
   send(ws, { type: 'JOINED', name, emoji: storedEmoji, avatarUrl: storedAvatar });
   if (session?.phase === 'lobby') {
     await pool.query(
@@ -294,18 +312,17 @@ async function finishAnswering(): Promise<void> {
   const qAnswers = s.answers[q.id] ?? {};
   const allValues = Object.values(qAnswers).map((a: PlayerAnswer) => a.value);
 
+  // Puntos y resultado por jugador: todo en memoria, sin tocar la DB.
   const playerAnswers: Record<string, { value: string; points: number; correct: boolean }> = {};
   for (const [pidStr, ans] of Object.entries(qAnswers) as [string, PlayerAnswer][]) {
-    (ans as PlayerAnswer).points = computePoints(q, ans.value, ans.answeredAt, allValues);
-    await pool.query(
-      `INSERT INTO answers (session_id,question_id,player_id,value,time_used_ms,points) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
-      [s.sessionId, q.id, parseInt(pidStr), ans.value, ans.answeredAt, ans.points]
-    );
-    playerAnswers[pidStr] = { value: ans.value, points: (ans as PlayerAnswer).points, correct: isCorrect(q, ans.value) };
+    ans.points = computePoints(q, ans.value, ans.answeredAt, allValues);
+    playerAnswers[pidStr] = { value: ans.value, points: ans.points, correct: isCorrect(q, ans.value) };
   }
 
+  // Distribución y ranking acumulado también en memoria => resultados instantáneos,
+  // sin esperar ninguna ida a la base.
   const distribution = buildDistribution(q, qAnswers as Record<number, PlayerAnswer>);
-  const rankings = await computeRankings(s.sessionId);
+  const rankings = computeRankingsInMemory(s);
 
   await publishEvent({
     type: 'PHASE_QUESTION_RESULTS',
@@ -316,6 +333,10 @@ async function finishAnswering(): Promise<void> {
     rankings,
   });
 
+  // Persistencia después del reveal (una sola query batch, no N secuenciales).
+  // Necesaria para los rankings anuales/torneo (leen de la tabla answers) y para
+  // el restore tras un reinicio.
+  await persistAnswers(s.sessionId, q.id, qAnswers as Record<number, PlayerAnswer>);
 }
 
 async function goToWaiting(): Promise<void> {
@@ -365,4 +386,47 @@ async function computeRankings(sessionId: number): Promise<object[]> {
     [sessionId]
   );
   return r.rows.map((row, i) => ({ ...row, position: i + 1 }));
+}
+
+// Ranking acumulado calculado en memoria a partir de session.answers (todas las
+// preguntas jugadas). Evita la ida a la DB para que los resultados sean instantáneos.
+// La info de cada jugador (nombre/emoji/avatar) sale de session.playerInfo, que se
+// llena al unirse y se rehidrata desde la DB en el restore.
+function computeRankingsInMemory(s: ActiveSession): object[] {
+  const totals = new Map<number, number>();
+  for (const [, perQ] of Object.entries(s.answers)) {
+    for (const [pidStr, ans] of Object.entries(perQ) as [string, PlayerAnswer][]) {
+      const pid = Number(pidStr);
+      totals.set(pid, (totals.get(pid) ?? 0) + (ans.points ?? 0));
+    }
+  }
+  const rows = [...totals.entries()].map(([pid, total_points]) => {
+    const info = s.playerInfo.get(pid);
+    return {
+      name: info?.name ?? '—',
+      emoji: info?.emoji ?? '❓',
+      avatar_url: info?.avatar_url ?? null,
+      total_points,
+    };
+  });
+  rows.sort((a, b) => b.total_points - a.total_points || a.name.localeCompare(b.name));
+  return rows.map((row, i) => ({ ...row, position: i + 1 }));
+}
+
+// Persiste las respuestas de una pregunta en una sola query (en vez de N inserts
+// secuenciales, que eran el "tiempo muerto" al terminar cada pregunta).
+async function persistAnswers(sessionId: number, questionId: number, qAnswers: Record<number, PlayerAnswer>): Promise<void> {
+  const entries = Object.entries(qAnswers) as [string, PlayerAnswer][];
+  if (!entries.length) return;
+  const rows: string[] = [];
+  const vals: unknown[] = [];
+  entries.forEach(([pidStr, ans], i) => {
+    const b = i * 6;
+    rows.push(`($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6})`);
+    vals.push(sessionId, questionId, Number(pidStr), ans.value, ans.answeredAt, ans.points);
+  });
+  await pool.query(
+    `INSERT INTO answers (session_id,question_id,player_id,value,time_used_ms,points) VALUES ${rows.join(',')} ON CONFLICT DO NOTHING`,
+    vals
+  );
 }
