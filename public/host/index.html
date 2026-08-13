@@ -163,9 +163,31 @@ async function archiveYear(){
   if(!confirm('¿Guardar el año y resetear el ranking?'))return;
   await api('/api/rankings/archive-year','POST');alert('Año guardado.');await renderRanking();
 }
+let rosterData=[];
 async function renderRoster(){
-  const data=await api('/api/roster');
-  document.getElementById('tabContent').innerHTML=`<div style="background:#fff;border-radius:14px;padding:16px;border:1px solid #e0d9f7"><div class="section-title">Jugadores registrados (${data.length})</div>`+data.map(p=>`<div class="rank-row"><span style="font-size:20px">${p.emoji}</span><div style="flex:1;font-size:13px;font-weight:700;color:#1a0a5e">${p.name}</div></div>`).join('')+`</div>`;
+  rosterData=await api('/api/roster');
+  const rows=rosterData.length
+    ? rosterData.map(p=>`<div class="quiz-card"><div class="quiz-info" style="display:flex;align-items:center;gap:10px"><span style="font-size:22px">${p.emoji}</span><div class="title">${p.name}</div></div><div class="quiz-actions"><button class="btn btn-edit" onclick="editPlayer(${p.id})">✏️ Editar</button><button class="btn btn-del" onclick="delPlayer(${p.id})">✕</button></div></div>`).join('')
+    : '<div style="color:#8a7aaa;font-size:13px">No hay jugadores registrados.</div>';
+  document.getElementById('tabContent').innerHTML=`<div class="section-title">Jugadores registrados (${rosterData.length})</div>`+rows;
+}
+async function editPlayer(id){
+  const p=rosterData.find(x=>x.id===id);
+  if(!p)return;
+  const newName=prompt('Nombre del jugador:',p.name);
+  if(newName===null)return;
+  const newEmoji=prompt('Emoji (podés pegar uno con el selector del sistema):',p.emoji);
+  if(newEmoji===null)return;
+  const r=await api('/api/players/'+id,'PUT',{name:newName.trim()||p.name,emoji:newEmoji.trim()||p.emoji});
+  if(r&&r.error){alert(r.error);}
+  await renderRoster();
+}
+async function delPlayer(id){
+  const p=rosterData.find(x=>x.id===id);
+  if(!p)return;
+  if(!confirm('¿Borrar a '+p.name+'? También se borran sus respuestas.'))return;
+  await api('/api/players/'+id,'DELETE');
+  await renderRoster();
 }
 function esc(s){return(s||'').replace(/'/g,"&#39;");}
 showTab('quizzes',document.querySelector('.tab'));

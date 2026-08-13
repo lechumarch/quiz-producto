@@ -120,9 +120,25 @@ router.get('/api/roster', async (_req, res) => {
 });
 
 router.put('/api/players/:id', async (req, res) => {
-  const { name } = req.body;
-  const r = await pool.query('UPDATE players SET name=$1 WHERE id=$2 RETURNING *', [name, req.params.id]);
-  res.json(r.rows[0]);
+  const { name, emoji } = req.body;
+  try {
+    const r = await pool.query(
+      'UPDATE players SET name=COALESCE($1,name), emoji=COALESCE($2,emoji) WHERE id=$3 RETURNING *',
+      [name ?? null, emoji ?? null, req.params.id]
+    );
+    res.json(r.rows[0]);
+  } catch (e: any) {
+    if (e.code === '23505') return res.status(400).json({ error: 'Ya existe un jugador con ese nombre' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.delete('/api/players/:id', async (req, res) => {
+  const id = req.params.id;
+  await pool.query('DELETE FROM answers WHERE player_id=$1', [id]);
+  await pool.query('DELETE FROM session_players WHERE player_id=$1', [id]);
+  await pool.query('DELETE FROM players WHERE id=$1', [id]);
+  res.json({ ok: true });
 });
 
 // Reset del roster: borra todos los jugadores y su participación (answers/session_players).
