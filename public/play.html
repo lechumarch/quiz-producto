@@ -228,8 +228,11 @@ function showResults(msg){
   } else if((msg.questionType==='multiple_choice'||msg.questionType==='true_false')&&msg.correctAnswer){
     extraHtml='<div style="font-size:13px;font-weight:700;color:#16a34a;margin-top:10px;padding:6px 12px;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0">✓ Correcta: '+msg.correctAnswer+'</div>';
   } else if(msg.questionType==='majority'&&msg.distribution&&msg.distribution.counts){
-    var counts=msg.distribution.counts,majKey=Object.keys(counts).sort(function(a,b){return counts[b]-counts[a];})[0];
-    if(majKey)extraHtml='<div style="font-size:13px;font-weight:700;color:#6b2bd9;margin-top:10px;padding:6px 12px;background:#f0edff;border-radius:8px">👥 Mayoría: '+majKey+'</div>';
+    var counts=msg.distribution.counts,opts=msg.distribution.options||[];
+    var majKey=Object.keys(counts).sort(function(a,b){return counts[b]-counts[a];})[0];
+    var majLabel=majKey;
+    if(majKey!=null&&opts.length&&opts.indexOf(majKey)<0){var n=parseInt(majKey);if(!isNaN(n))majLabel=(opts[n]!=null?opts[n]:(opts[n-1]!=null?opts[n-1]:majKey));}
+    if(majKey)extraHtml='<div style="font-size:13px;font-weight:700;color:#6b2bd9;margin-top:10px;padding:6px 12px;background:#f0edff;border-radius:8px">👥 Mayoría: '+majLabel+'</div>';
   } else if(msg.questionType==='rank'&&msg.correctAnswer){
     try{var order=JSON.parse(msg.correctAnswer);extraHtml='<div style="font-size:12px;color:#6b2bd9;margin-top:8px">Orden correcto: '+order.join(' → ')+'</div>';}catch(e){}
   }

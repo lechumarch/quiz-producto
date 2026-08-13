@@ -150,8 +150,14 @@ function renderResults(msg){
   if(msg.questionType==='estimation'){
     distHTML=buildEstimationChart(d.values,d.realValue);
   } else if(d.counts&&d.options){
-    const total=Object.values(d.counts).reduce((a,b)=>a+b,0)||1;
-    distHTML=`<div style="width:100%;max-width:700px;margin-bottom:20px">`+d.options.map(o=>{const cnt=d.counts[o]||0,pct=Math.round(cnt/total*100),isC=o===correct;return`<div class="bar-row"><div class="bar-label">${o}${isC?' ✓':''}</div><div class="bar-bg"><div class="bar-fill${isC?' correct':''}" style="width:${Math.max(pct,4)}%">${cnt}</div></div></div>`;}).join('')+`</div>`;
+    // Resolver el conteo por opción de forma robusta: los counts pueden venir
+    // con clave = texto de la opción, o con clave = ID/índice (0- o 1-based).
+    const has=k=>d.counts[k]!=null;
+    const mode=d.options.some(o=>has(o))?'text':(has(0)?'idx0':'idx1');
+    const cntFor=(o,i)=>mode==='text'?(d.counts[o]||0):mode==='idx0'?(d.counts[i]||0):(d.counts[i+1]||0);
+    const counts=d.options.map((o,i)=>cntFor(o,i));
+    const total=counts.reduce((a,b)=>a+b,0)||1;
+    distHTML=`<div style="width:100%;max-width:700px;margin-bottom:20px">`+d.options.map((o,i)=>{const cnt=counts[i],pct=Math.round(cnt/total*100),isC=o===correct;return`<div class="bar-row"><div class="bar-label">${o}${isC?' ✓':''}</div><div class="bar-bg"><div class="bar-fill${isC?' correct':''}" style="width:${Math.max(pct,4)}%">${cnt}</div></div></div>`;}).join('')+`</div>`;
   }
   const medals=['🥇','🥈','🥉'];
   const rankHTML=`<div class="rank-table">`+rankings.slice(0,8).map((r,i)=>{
