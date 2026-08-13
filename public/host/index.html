@@ -28,6 +28,11 @@ input:focus,select:focus{border-color:#6b2bd9}
 .tab.active{background:#fff;color:#6b2bd9;box-shadow:0 1px 4px rgba(0,0,0,.1)}
 .tabs-bar{background:#f0edff;border-radius:12px;padding:4px;margin-bottom:20px;display:flex}
 .rank-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0edff}
+.emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin-top:4px}
+.em{aspect-ratio:1;font-size:20px;border:2px solid transparent;border-radius:9px;cursor:pointer;background:#f7f5ff;display:flex;align-items:center;justify-content:center}
+.em.sel{border-color:#6b2bd9;background:#ede8ff}
+.modal-overlay{position:fixed;inset:0;background:rgba(26,10,94,.45);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}
+.modal{background:#fff;border-radius:16px;padding:20px;width:100%;max-width:420px;box-shadow:0 10px 40px rgba(0,0,0,.25)}
 </style>
 </head>
 <body>
@@ -171,16 +176,34 @@ async function renderRoster(){
     : '<div style="color:#8a7aaa;font-size:13px">No hay jugadores registrados.</div>';
   document.getElementById('tabContent').innerHTML=`<div class="section-title">Jugadores registrados (${rosterData.length})</div>`+rows;
 }
-async function editPlayer(id){
+const EMOJIS=['🚀','⚡','🎯','🔥','🌟','💎','🦁','🐯','🦊','🐺','🦋','🐙','🦄','🐲','🌈','🎸','🎨','🏆','⚽','🎮','🍕','🌮','🎂','🍦','🌺','🌸','🍀','🌊','🏔','🌙','☀️','❄️'];
+function editPlayer(id){
   const p=rosterData.find(x=>x.id===id);
   if(!p)return;
-  const newName=prompt('Nombre del jugador:',p.name);
-  if(newName===null)return;
-  const newEmoji=prompt('Emoji (podés pegar uno con el selector del sistema):',p.emoji);
-  if(newEmoji===null)return;
-  const r=await api('/api/players/'+id,'PUT',{name:newName.trim()||p.name,emoji:newEmoji.trim()||p.emoji});
-  if(r&&r.error){alert(r.error);}
-  await renderRoster();
+  let selectedEmoji=p.emoji;
+  const overlay=document.createElement('div');
+  overlay.className='modal-overlay';
+  overlay.innerHTML=`<div class="modal"><div class="section-title">Editar jugador</div><input id="edName" placeholder="Nombre"><label style="display:block;font-size:11px;font-weight:700;color:#6b2bd9;margin:6px 0 4px 2px">Emoji</label><div class="emoji-grid" id="edGrid"></div><div style="display:flex;gap:8px;margin-top:16px"><button class="btn btn-del" style="flex:1" id="edCancel">Cancelar</button><button class="btn-primary" style="flex:2;width:auto" id="edSave">Guardar</button></div></div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#edName').value=p.name;
+  const grid=overlay.querySelector('#edGrid');
+  EMOJIS.forEach(function(em){
+    const b=document.createElement('button');
+    b.className='em'+(em===selectedEmoji?' sel':'');
+    b.textContent=em;
+    b.onclick=function(){grid.querySelectorAll('.em').forEach(x=>x.classList.remove('sel'));b.classList.add('sel');selectedEmoji=em;};
+    grid.appendChild(b);
+  });
+  const close=()=>overlay.remove();
+  overlay.querySelector('#edCancel').onclick=close;
+  overlay.onclick=e=>{if(e.target===overlay)close();};
+  overlay.querySelector('#edSave').onclick=async function(){
+    const newName=overlay.querySelector('#edName').value.trim()||p.name;
+    close();
+    const r=await api('/api/players/'+id,'PUT',{name:newName,emoji:selectedEmoji});
+    if(r&&r.error){alert(r.error);}
+    await renderRoster();
+  };
 }
 async function delPlayer(id){
   const p=rosterData.find(x=>x.id===id);
